@@ -6,8 +6,6 @@ output: html_document
 ---
 # How does urbanization influence ibis behaviors relevant to transmission? 
 
-hi 
-
 ### Specifically, how does variation in flock size and frequency of provisioning influence these behaviors? 
 
 #### Data:
@@ -50,28 +48,25 @@ library(mosaic)  # standardizing variables
 ```
 
 ```{r Set Directory and load data, message=FALSE, warning=FALSE, include=FALSE}
-#Set working directory----
-setwd("~/Desktop/chapter 3 ibis data chapter/2019 Activity Budget Data Analysis")
-
 #Read in data----
-behav<-read_excel("Summer 2019 Field Data.xlsx", 
+behav<-read_excel("data/Summer 2019 Field Data.xlsx", 
                   sheet = "behaviorsTable") #activity budgets
 behav$activity2 <- paste(behav$Activity, behav$Location) #combine two levels of behavior types
-focTable_all<- read_excel("Summer 2019 Field Data.xlsx", 
+focTable_all<- read_excel("data/Summer 2019 Field Data.xlsx", 
                           sheet = "focalsTable") #read in 'focTable' to get the end focal times 
-groupsize<-read_excel("Summer 2019 Field Data.xlsx", 
+groupsize<-read_excel("data/Summer 2019 Field Data.xlsx", 
                       sheet = "Flock Composition")
-people<- read_excel("Summer 2019 Field Data.xlsx", 
+people<- read_excel("data/Summer 2019 Field Data.xlsx", 
                     sheet = "People Feeding")
 
-flockcomp<- read_excel("Summer 2019 Field Data.xlsx", 
+flockcomp<- read_excel("data/Summer 2019 Field Data.xlsx", 
                     sheet = "Flock Composition")
 
 focTable <- dplyr::select(focTable_all, device_ID, session_start_timeStamp,focal_start_timeStamp,focal_end_timeStamp) #select relevant columns
 
 behav <- merge(behav, focTable, by=c("device_ID", "session_start_timeStamp", "focal_start_timeStamp")) #add end times to behav dataframe; the length should be the same as 'behav' but with 1 extra variable
 
-proximity<- read_excel("Summer 2019 Field Data.xlsx", 
+proximity<- read_excel("data/Summer 2019 Field Data.xlsx", 
                        sheet = "proximity") #read in 'proximity' to get site names
 ```
 
@@ -336,7 +331,7 @@ I am going to re-group these variables according to their relevance to different
 ```{r isotope data, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 ##isotope data----
 
-isotope <- read_excel("murryetal2018philtrans_isotope.xlsx")
+isotope <- read_excel("data/murryetal2018philtrans_isotope.xlsx")
 
 isotope <- as.data.frame(subset(isotope, Site == "Indian Creek" | Site == "Dreher Park"| Site == "Gaines Park"| Site == "Juno Beach"))
 
