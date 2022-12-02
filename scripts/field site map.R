@@ -61,12 +61,13 @@ counties <- subset(counties, grepl("florida", counties$ID))
 counties$area <- as.numeric(st_area(counties))
 head(counties)
 
+#map of FL counties
 ggplot(data = world) +
   geom_sf() +
   geom_sf(data = counties, fill = NA, color = gray(.5)) +
   coord_sf(xlim = c(-88, -78), ylim = c(24.5, 33), expand = FALSE)
 
-
+#Map of FL counties with some colors for field sites
 ggplot(data = world) +
   geom_sf(fill = "antiquewhite1") +
   geom_sf(data = counties,aes(color = pbc)) +
@@ -105,7 +106,7 @@ ggplot(data = world) +
   theme(panel.grid.major = element_line(color = gray(0.5), linetype = "dashed", 
                                         size = 0.5), panel.background = element_rect(fill = "aliceblue"))
 
-
+#map highlighting Palm Beach County 
 ggplot(data = world) +
   geom_sf(fill = "beige") +
   geom_sf(data = counties,aes(fill=pbc),color="black") +
@@ -132,16 +133,18 @@ pbc_bb %>%
 
 pbc_map <- get_map(pbc_bb, maptype = "roadmap")
 
-ggmap(pbc_map) #+geom_sf(data = sites, size = 4, shape = 23,fill = "white") 
+ggmap(pbc_map) #+geom_sf(data = sites, size = 4, shape = 23,fill = "white") #fancy map of PBC
 
 pbc_map2 <- get_map(pbc_bb, maptype = "terrain")
 
+#zoomed in map with colors and colored site indicators 
 ggmap(pbc_map2)  + 
   geom_point(data = sites0, aes(x = long, y = lat,fill=site_type),shape=23,size=6)+ 
   scale_fill_manual(values = c("#1F968BFF", "#481567FF"))+
   labs(fill="Site Type")+
   xlab("Longitude") + ylab("Latitude") + theme_bw()
 
+#black and white map with colored site indicators 
 pbc_map3 <- get_stamenmap(pbc_bb, maptype = "toner-lite")
 ggmap(pbc_map3)  + 
   geom_point(data = sites0, aes(x = long, y = lat,fill=site_type),shape=23,size=6)+ 
