@@ -57,7 +57,7 @@ Compare 1m density of individuals from videos to focal follows.
 *Prepare focal follow data*  
 
 ```{r message=FALSE, warning=FALSE}
-FFprox_1m <- read_excel("data/Summer 2019 Field Data copy.xlsx", 
+FFprox_1m <- read_excel("data/Summer 2019 Field Data.xlsx", 
                                           sheet = "proximity")
 FFprox_1m <- dplyr::select(FFprox_1m, site, behavior_timeStamp,focalID, count_2m='1mCON')
 FFprox_1m$count_2m<- as.numeric(FFprox_1m$count_2m)
@@ -260,11 +260,11 @@ Compare observed flock sizes at each site/date in videos to observed flock sizes
 
 
 ```{r include=FALSE}
-scan_FS<-read_excel("data/Summer 2019 Field Data copy.xlsx", 
+scan_FS<-read_excel("data/Summer 2019 Field Data.xlsx", 
                       sheet = "Flock Composition") #pull flock size data from flock scans
 scan_FS <- dplyr::select(scan_FS, date, site,'ibis_count'=WHIB_total)
 
-vid_FS <- read_excel("data/foraging video data copy.xlsx", 
+vid_FS <- read_excel("data/foraging video data.xlsx", 
                                        sheet = "data") #pull flock size data from foraging videos
 vid_FS <- dplyr::select(vid_FS,date, site,'ibis_count'=flock_size)
 
