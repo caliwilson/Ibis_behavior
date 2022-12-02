@@ -1,0 +1,337 @@
+---
+title: "Urban foraging proximity project"
+author: "Cali Wilson"
+date: "9/15/2020"
+output: html_document
+---
+# Ibis provisioning density estimates
+
+**Main questions:**
+
+1. How does urban foraging density change when provisioned by humans?
+2. Does flock size affect this change?
+3. Approximately what proportion of the flock is visible in provisioned foraging videos? (just to check the validity of the foraging videos)
+
+
+#### Data
+
+1. Video data: data were collected using ~5 minute overhead videos of ibis being fed bread at urban parks in South Florida during summer 2019. ~7 focal birds were 'followed' in each video and the # of conspecifics within a 1m radius of the focal bird was recroded at 5 equally spaced time points during the observation. If a 1m radius was not in view (e.g., the bird was closer to the end of the video frame), no data were collected. 
+
+2. Focal follow data: data were collected using 10 minute focal follows of individual ibis in urban parks in South Florida during summer 2019. At the start and (when bird was still visible) end of each focal follow, the number of conspecifics within 1m and 5m of the focal bird was collected.
+
+#### Data wrangling:
+
+**Prepare video (provisioned) proximity data**
+
+```{r message=FALSE, warning=FALSE}
+#Load packages and data :-------
+library(readxl)
+library(tidyverse)
+library(reshape2)
+library(rstatix)
+library(ggpubr)
+library(gridExtra)
+
+vid0<- read_excel("Ibis Behavior.xlsx",sheet = "1m_density")
+vid <- read_excel("Ibis Behavior.xlsx",sheet = "1m_density")
+vid<-dplyr::select(vid,site,date,vid_length,focalID,count_2m=`2m_density`,flock_size)
+vid$count_2m<-as.numeric(vid$count_2m)
+vid$uniqueID <- paste(vid$vid_ID,vid$vid_length,vid$focalID,sep='')
+vid$focalID<-NULL #remove old focalID
+
+vid_avg<-vid %>%drop_na() %>%  #drop rows with NA
+  group_by(uniqueID) %>% 
+  summarise(avg_count=mean(count_2m)) %>%#average by uniqueID 
+  rename(focalID = uniqueID) #rename uniqueID to focalID for merging later
+
+
+VIDsites <- dplyr::select(vid,site,focalID=uniqueID)
+VIDsites <- unique(VIDsites)
+vid_avg <- merge(vid_avg,VIDsites, by=c("focalID")) 
+
+```
+
+Compare 1m density of individuals from videos to focal follows.
+
+
+*Prepare focal follow data*  
+
+```{r message=FALSE, warning=FALSE}
+FFprox_1m <- read_excel("Summer 2019 Field Data copy.xlsx", 
+                                          sheet = "proximity")
+FFprox_1m <- dplyr::select(FFprox_1m, site, behavior_timeStamp,focalID, count_2m='1mCON')
+FFprox_1m$count_2m<- as.numeric(FFprox_1m$count_2m)
+#FFprox_1m$density_2m<-(FFprox_1m$count_2m)/(pi*(4^2))
+
+FF_avg<-FFprox_1m %>%drop_na() %>%  #drop rows with NA
+   group_by(focalID) %>% 
+   summarise(avg_count=mean(count_2m))  
+
+
+#add site back in:
+FFsites <- dplyr::select(FFprox_1m,site,focalID)
+FFsites <- unique(FFsites)
+FF_avg <- merge(FF_avg,FFsites, by=c("focalID")) 
+
+```
+
+*Merge datasets* 
+
+```{r}
+
+vid_avg$foraging_type <- "provisioned"
+FF_avg$foraging_type <- "not provisioned"
+
+count_1m <- rbind(vid_avg,FF_avg)  #merge two datasets together; 30 + 164
+
+write.csv(count_1m ,"merged_foraging_data.csv", row.names = FALSE) #writing this CSV to use for python class project
+
+```
+
+Visualizations:
+
+```{r echo=FALSE}
+ggplot(count_1m, aes(x=site, y=avg_count, fill=foraging_type)) +
+  geom_boxplot(position=position_dodge(1)) + theme_classic() +
+  xlab("Site") + ylab("Number of conspecifics within 1m of focal ibis")
+
+ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
+  geom_boxplot(position=position_dodge(1)) + theme_classic() +
+  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank())
+
+ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
+  geom_boxplot(position=position_dodge(1)) + theme_classic() +
+  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank())+ geom_dotplot(binaxis='y', stackdir='center', dotsize=0.2,fill="#21918c",color="#21918c")
+
+ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
+  geom_violin() + theme_classic() +
+  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank()) + geom_dotplot(binaxis='y', stackdir='center', dotsize=0.2)
+
+ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
+   geom_violin(trim=FALSE, fill="#fde725")+  geom_boxplot(width=0.1)+theme_classic() +
+  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank())
+
+
+ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
+  geom_boxplot(position=position_dodge(1),fill="#21918c") + theme_classic() +
+  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank())+ geom_dotplot(binaxis='y', stackdir='center', dotsize=0.2)
+
+
+#notched boxplot
+ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
+  geom_boxplot(alpha = 0.1,outlier.shape=8,notch=TRUE,aes(fill=foraging_type)) + theme_classic() +
+  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank())+geom_jitter(shape=16, position=position_jitter(0.2),aes(color=foraging_type,fill=foraging_type))+ 
+  scale_color_manual(values=c("#21918c", "#3b528b"))+
+  scale_fill_manual(values=c("#21918c", "#3b528b"))
+
+ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
+  geom_boxplot(outlier.shape=8,notch=TRUE,aes(fill=foraging_type)) + theme_classic() +
+  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank())+geom_jitter(alpha = 0.5,shape=16, position=position_jitter(0.2),aes(color=foraging_type,fill=foraging_type))+ 
+  scale_color_manual(values=c("#21918c", "#3b528b"))+
+  scale_fill_manual(values=c("#21918c", "#3b528b"))
+
+bplot<-ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
+  geom_boxplot(outlier.shape=8,notch=TRUE) + theme_classic() +
+  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank(),legend.position="none")+geom_jitter(alpha = 0.5,shape=16, position=position_jitter(0.3),aes(color=foraging_type,fill=foraging_type))+ 
+  scale_color_manual(values=c("#21918c", "#440154"))+
+  scale_fill_manual(values=c("#21918c", "#440154"))
+
+
+
+hplot<-ggplot(count_1m, aes(x = avg_count)) +
+  geom_histogram(aes(color = foraging_type, fill = foraging_type), 
+                position = "identity", bins = 30, alpha = 0.4) +
+  scale_color_manual(values = c("#21918c", "#440154")) + 
+  scale_fill_manual(values = c("#21918c", "#440154")) +
+  guides(fill=guide_legend(title=NULL),color=guide_legend(title=NULL))+
+  labs(x="Number of conspecifics within 1m of focal ibis", y = "Number of Observations")+
+  theme_classic()+theme(legend.position = c(0.7, 0.7)) 
+
+
+grid.arrange(hplot,bplot, ncol=2) 
+
+ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
+  geom_boxplot(outlier.shape=8,notch=TRUE) + theme_classic() +
+  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank(),legend.position="none")+geom_jitter(alpha = 0.5,shape=16, position=position_jitter(0.3),aes(color=foraging_type,fill=foraging_type))+ 
+  scale_color_manual(values=c("#21918c", "#440154"))+
+  scale_fill_manual(values=c("#21918c", "#440154"))
+
+ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
+  geom_boxplot(outlier.shape=8,notch=FALSE) + theme_classic() +
+  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank(),legend.position="none")+geom_jitter(alpha = 0.5,shape=16, position=position_jitter(0.3),aes(color=foraging_type,fill=foraging_type))+ 
+  scale_color_manual(values=c("#21918c", "#440154"))+
+  scale_fill_manual(values=c("#21918c", "#440154"))
+
+```
+
+### Compute summary statistics for the groups 
+```{r echo=FALSE}
+
+vid0 %>%drop_na(`2m_density`)%>%
+  summarise(count_distinct = n_distinct(vid_ID)) #how many videos do I have tracked individuals from? 
+
+count_1m %>%
+  group_by(foraging_type) %>%
+  get_summary_stats(avg_count, type = "mean_sd")
+
+#check for outliers 
+count_1m %>%
+  group_by(foraging_type) %>%
+  identify_outliers(avg_count) # a few extreme outliers
+
+#check normality
+count_1m %>%
+  group_by(foraging_type) %>%
+  shapiro_test(avg_count) #neither group is normally distributed 
+
+ggplot(count_1m, aes(x = avg_count)) +
+  geom_histogram(aes(color = foraging_type, fill = foraging_type), 
+                position = "identity", bins = 30, alpha = 0.4) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800"))
+
+# Draw a qq plot by group- looks problematic 
+ggqqplot(count_1m, x = "avg_count", facet.by = "foraging_type")
+
+#data aren't normally distributed so going to do a Wilcoxon rank sum
+
+w1<- wilcox.test(count_1m$avg_count ~ count_1m$foraging_type, conf.int=TRUE)
+
+#calculate Z value:
+Z = qnorm(w1$p.value)
+
+Z 
+
+#calculate r- sometimes called the effect size 
+N=nrow(count_1m)
+r = abs(Z)/sqrt(N)
+names(r) = "r"
+r
+
+#try wilcox test using 'coin' package to see if I calculated Z score correctly
+library(coin)
+
+count_1m$foraging_type<-as.factor(count_1m$foraging_type)
+w2 <- coin::wilcox_test(count_1m$avg_count ~ count_1m$foraging_type)
+Z2 = as.numeric(statistic(w2, type="standardized"))
+Z2
+
+r2 = abs(Z2)/sqrt(N)
+names(r2) = "r2"
+
+r2
+
+#both wilcox.test and wilcox_test produce very similar results. I am going to go with wilcox.test because it has a continuity correction and that seems good. 
+```
+
+This suggests that the means do indeed differ. On average, ibis are surrounded by a larger number of conspecifics when being actively provisioned compared to when not being fed. 
+
+By how much does the density increase when provisioning? 
+
+```{r}
+count_1m$density <- count_1m$avg_count/(pi*(1^2))
+
+compare<-count_1m %>%
+  group_by(foraging_type) %>%
+  get_summary_stats(density, type = "mean_sd")
+
+compare$mean[2]/compare$mean[1] #surrounded by approx. 3x higher density  
+
+((compare$mean[2]-compare$mean[1])/compare$mean[1])*100 #205% increase in flock size
+
+compare2<-count_1m %>%
+  group_by(foraging_type) %>%
+  get_summary_stats(avg_count, type = "mean_sd")
+
+compare2$mean[2]-compare2$mean[1] #surrounded by approx. 5 more individuals on average 
+```
+
+
+## Approximately what proportion of the flock is visible in provisioned foraging videos?
+
+**Data:**
+
+1. from videos: flock size visible in frame is counted for each bread throw throughout the video
+2. from flock scans: Approximately every 30 minutes while at a site, we counted the total number of ibis present. 
+
+**Comparison methods:**
+
+Compare observed flock sizes at each site/date in videos to observed flock sizes from scans 
+
+
+```{r include=FALSE}
+scan_FS<-read_excel("Summer 2019 Field Data copy.xlsx", 
+                      sheet = "Flock Composition") #pull flock size data from flock scans
+scan_FS <- dplyr::select(scan_FS, date, site,'ibis_count'=WHIB_total)
+
+vid_FS <- read_excel("foraging video data copy.xlsx", 
+                                       sheet = "data") #pull flock size data from foraging videos
+vid_FS <- dplyr::select(vid_FS,date, site,'ibis_count'=flock_size)
+
+#fix date for both these dataframes:
+
+scan_FS$date <- as.character(scan_FS$date)
+vid_FS$date <- as.character(vid_FS$date)
+scan_FS$flock <- "full"
+vid_FS$flock <- "in_video"
+flock_size_comp <- rbind(scan_FS,vid_FS)
+```
+
+```{r echo=FALSE}
+ggplot(flock_size_comp, aes(x=date, y=ibis_count)) +
+  geom_point(aes(shape=flock, color=site)) +
+  theme(legend.position="top") + theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+There is a lot of variation but in general, most of the flock is represented in the videos. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+head(flock_size_comp)
+
+#+++++++++++++++++++++++++
+# Function to calculate the mean and the standard deviation
+  # for each group
+#+++++++++++++++++++++++++
+# data : a data frame
+# varname : the name of a column containing the variable
+  #to be summariezed
+# groupnames : vector of column names to be used as
+  # grouping variables
+data_summary <- function(data, varname, groupnames){
+  require(plyr)
+  summary_func <- function(x, col){
+    c(mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd(x[[col]], na.rm=TRUE))
+  }
+  data_sum<-ddply(data, groupnames, .fun=summary_func,
+                  varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+ return(data_sum)
+}
+
+library(plyr)
+library(dplyr)
+df2 <- data_summary(flock_size_comp, varname="ibis_count", 
+                    groupnames=c("date", "site","flock"))
+
+```
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+ggplot(df2, aes(x=date, y=ibis_count, group=flock, color=flock)) + 
+  geom_line() +
+  geom_point()+
+  geom_errorbar(aes(ymin=ibis_count-sd, ymax=ibis_count+sd), width=.2,
+                 position=position_dodge(0.05)) + theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+ggplot(df2, aes(x=date, y=ibis_count, fill=flock)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  geom_errorbar(aes(ymin=ibis_count-sd, ymax=ibis_count+sd), width=.2,
+                 position=position_dodge(.9)) + theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
+```
+

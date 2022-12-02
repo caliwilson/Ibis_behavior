@@ -1,0 +1,951 @@
+---
+title: "Urban Natural Comparison Analysis"
+author: "Cali Wilson"
+date: "5/13/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# How does urbanization influence ibis behaviors, especially those relevant for transmission?
+
+
+### Sample sizes by site
+
+Note- Observations are the average of 2-8 scans conducted at 10 minute intervals. 
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+setwd("~/Desktop/chapter 3 ibis data chapter/Spring 2021 Field Data Urban Natural Comparisons")
+library(readxl)
+library(tidyverse)
+library(magrittr)
+library(gridExtra)
+library(viridis)
+library(factoextra)
+library(rstatix)
+library(glmmTMB)
+library(DHARMa)
+library(bbmle) 
+library(gridExtra)
+flockscans <- read_excel("Spring 2021 Field Data.xlsx", 
+                                     sheet = "Flock Scans")
+
+aggregated <- flockscans %>% group_by(site, date) %>% dplyr::summarise(count=n()) 
+
+aggregated %<>% 
+  unite(obs, c(site,date), sep = " ", remove = FALSE)
+
+
+#ggplot(aggregated , aes(x = obs,count)) +
+ # geom_col() +  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
+
+obsbysite <- aggregated  %>% group_by(site) %>% dplyr::summarise(count=n()) 
+
+ggplot(obsbysite , aes(x = site,count)) +
+  geom_col() +  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+```
+
+**urban parks** = DP, ICP, JB
+
+**natural wetlands** = GC, WAK, WW
+
+## Activity budgets
+```{r message=FALSE, warning=FALSE, include=FALSE}
+#more data wrangling
+
+types<- flockscans %>% dplyr::select(site, site_type)
+types <- unique(types)
+obsbysite<-merge(x = obsbysite, y = types, by = "site", all = TRUE)
+
+obsbysitetype<- obsbysite  %>% group_by(site_type) %>% dplyr::summarize(total=sum(count)) 
+
+ggplot(obsbysitetype, aes(x = site_type,total)) +
+  geom_col() +  theme_classic()
+
+### Summary data:
+head(obsbysitetype)
+head(flockscans)
+mean(flockscans$flock_size)
+min(flockscans$flock_size)
+max(flockscans$flock_size)
+
+#### preliminary analysis of flock scan data
+
+head(flockscans)
+fs <- flockscans
+fs$time <-substr(fs$time, 12,20)
+fs$notes <- NULL
+fs[is.na(fs)] <- 0
+fs$preen_tot <- fs$preening+fs$preening_tree + fs$bathing #combining all preening with bathing too
+fs$vig_tot <- fs$vigilant+fs$vigilant_tree
+fs$rest_tot <- fs$resting+fs$resting_tree
+fs %<>% dplyr::select(date,site,site_type,time,foraging,preen_tot,vig_tot,rest_tot,walking,bathing)
+
+fs %<>%
+  mutate(Total = dplyr::select(., foraging:bathing) %>% rowSums(na.rm = TRUE))
+
+#proportions
+fs$prop_forage<- fs$foraging/fs$Total
+fs$prop_preen<- fs$preen_tot/fs$Total
+fs$prop_vig<- fs$vig_tot/fs$Total
+fs$prop_rest<- fs$rest_tot/fs$Total
+fs$prop_walk<- fs$walking/fs$Total
+fs$prop_bath<- fs$bathing/fs$Total
+
+#do proportions add to 1?
+fs$prop_forage+fs$prop_preen+fs$prop_vig+fs$prop_rest+fs$prop_walk+fs$prop_bath #yes 
+
+fs %<>% dplyr::select(date,site,site_type,time,prop_forage,prop_preen,prop_vig,prop_rest,prop_walk,prop_bath,flock_size=Total)
+
+fs$forag.vig <-fs$prop_forage/fs$prop_vig
+fs$prop_groom <-fs$prop_preen+fs$prop_bath
+
+fs_obs<- fs
+fs_obs <- fs_obs %>% dplyr::select(date,site,prop_forage,prop_preen,prop_vig,prop_rest,prop_walk,prop_bath,prop_groom,forag.vig,flock_size)  %>% group_by(site,date) %>% summarise_all(mean)
+
+
+fs_obs2 <-fs %>% group_by(site,date) %>% summarise_each(funs(mean, sd)) #group to get mean AND SD
+fs_obs2  <- fs_obs2 %>% dplyr::select(date,site,prop_forage_mean,prop_preen_mean,prop_vig_mean,prop_rest_mean,prop_walk_mean,prop_bath_mean,prop_groom_mean,forag.vig_mean,prop_forage_sd,prop_preen_sd,prop_vig_sd,prop_rest_sd,prop_walk_sd,prop_bath_sd,prop_groom_sd,forag.vig_sd,flock_size_mean,flock_size_sd) 
+
+fs_obs<-merge(x = fs_obs, y = types, by = "site", all = TRUE)
+
+fs_obs2<-merge(x = fs_obs2, y = types, by = "site", all = TRUE)
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+#Add in time of date to see if data was collected at similar times
+
+obs_datetimes <- fs%>% dplyr::select(site,date,time)
+
+first_scan<-obs_datetimes  %>% group_by(site,date) %>% summarise(first_scan=min(time)) 
+last_scan<-obs_datetimes  %>% group_by(site,date) %>% summarise(last_scan=max(time)) 
+scan_duration <-merge(x = first_scan, y = last_scan, by = c("site","date"), all = TRUE)
+
+fs <-merge(x = fs, y = scan_duration, by = c("site","date"), all = TRUE)
+
+
+
+timeBin2 <- function(x) { 
+  if(x<12) y <- "am"
+  if(x >= 12) y <- "pm"
+  return(y)
+}
+
+fs$ToD_firstscan <-sapply(fs$first_scan,timeBin2) 
+fs$ToD_lastscan <-sapply(fs$last_scan,timeBin2) 
+
+#do any observation periods span different time bins?
+fs$time_bin <- ifelse(fs$ToD_firstscan == fs$ToD_lastscan, fs$ToD_firstscan, "am and pm")
+times <- fs %>% dplyr::select(site,date,time_bin)
+times<- unique(times)
+
+fs_obs <-merge(x = fs_obs, y = times, by = c("site","date"), all = TRUE)
+fs_obs<- unique(fs_obs)
+
+ggplot(fs_obs, aes(x=site_type, y=prop_preen,color  =time_bin)) + 
+  geom_boxplot()+geom_jitter(position=position_dodge(0.8)) +theme_classic()
+
+
+ggplot(fs_obs, aes(x=site_type, y=prop_forage,color  =time_bin)) + 
+  geom_boxplot()+geom_jitter(position=position_dodge(0.8)) +theme_classic()
+
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#Data wrangling and visualize all behaviors together for each site type
+fs_long <- fs_obs %>% dplyr::select(site,date,site_type,flock_size,prop_forage,prop_preen,prop_vig,prop_rest,prop_walk,prop_bath)
+
+fs_long<-fs_long%>% gather("prop_forage", "prop_preen", "prop_vig", "prop_rest", "prop_walk","prop_bath", key = Activity, value = prop_time)
+fs_long <- unique(fs_long)
+
+fs_long <- spread(fs_long, key=Activity, value=prop_time, fill="0" ) #add in 0's for scans without certain values
+fs_long<-fs_long%>% gather("prop_forage", "prop_preen", "prop_vig", "prop_rest", "prop_walk","prop_bath", key = Activity, value = prop_time)
+
+fs_long$prop_time<-as.numeric(fs_long$prop_time)
+fs_simple <- fs_long %>% dplyr::select(site_type,Activity,prop_time)  %>% group_by(site_type,Activity) %>% summarise(mean=mean(prop_time))
+
+ggplot(data=fs_simple, aes(x=site_type, y=mean, fill=Activity)) +
+  geom_bar(stat="identity") + scale_fill_viridis(discrete=TRUE) + ylab("Proportion of flock performing each behavior")+theme_classic()+ labs(fill='Behavior') 
+
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#new clustered barplot visualization with grouped behaviors
+#include grooming = preening/bathing, foraging, vigilance, walking, resting
+#from data frame 'fs_long'
+collapsebehaviors <- function(x) { 
+  if(x=="prop_forage") y <- "Foraging"
+  if(x=="prop_preen") y <- "Grooming"
+  if(x=="prop_vig") y <- "Vigilant"
+  if(x=="prop_rest") y <- "Resting"
+  if(x=="prop_walk") y <- "Walking"
+  if(x=="prop_bath") y <- "Grooming"
+  return(y)
+}
+
+fs_collapsed<- fs_long %>% dplyr::select(site,date,flock_size,site_type,Activity,prop_time)  
+
+fs_collapsed$Activity2 <- sapply(fs_collapsed$Activity,collapsebehaviors) 
+
+fs_collapsed$Activity<-NULL
+
+#fs_collapsed%>% group_by(site_type,Activity2) %>% summarise(mean=mean(prop_time))
+
+fs_collapsed2<-fs_collapsed %>% 
+  group_by(site, date,Activity2,site_type) %>% 
+  summarise(prop_time_new = sum(prop_time, na.rm = TRUE))%>% group_by(site_type,Activity2) %>% summarise(mean=mean(prop_time_new))
+
+fs_collapsed2$Activity2<- factor(fs_collapsed2$Activity2,       # Change ordering manually
+                  levels = c("Resting","Walking", "Grooming", "Foraging", "Vigilant"))
+
+ggplot(data=fs_collapsed2, aes(x=site_type, y=mean, fill=Activity2)) +
+  geom_bar(stat="identity") + scale_fill_viridis(discrete=TRUE) + ylab("Proportion of flock performing each behavior")+theme_classic()+ labs(fill='Behavior') 
+
+
+#do it again but only include foraging, preening, vilance, other
+#from data frame 'fs_long'
+collapsebehaviors2 <- function(x) { 
+  if(x=="prop_forage") y <- "Foraging"
+  if(x=="prop_preen") y <- "Grooming"
+  if(x=="prop_vig") y <- "Vigilant"
+  if(x=="prop_rest") y <- "Other"
+  if(x=="prop_walk") y <- "Other"
+  if(x=="prop_bath") y <- "Grooming"
+  return(y)
+}
+
+fs_collapsed4<- fs_long %>% dplyr::select(site,date,flock_size,site_type,Activity,prop_time)  
+
+fs_collapsed4$Activity2 <- sapply(fs_collapsed4$Activity,collapsebehaviors2) 
+
+fs_collapsed4$Activity<-NULL
+
+fs_collapsed5<-fs_collapsed4 %>% 
+  group_by(site, date,Activity2,site_type) %>% 
+  summarise(prop_time_new = sum(prop_time, na.rm = TRUE))%>% group_by(site_type,Activity2) %>% summarise(mean=mean(prop_time_new)) 
+
+fs_collapsed5$Activity2<- factor(fs_collapsed5$Activity2,       # Change ordering manually
+                  levels = c("Other", "Grooming", "Foraging", "Vigilant"))
+
+
+ggplot(data=fs_collapsed5, aes(x=site_type, y=mean, fill=Activity2)) +
+  geom_bar(stat="identity") + scale_fill_viridis(discrete=TRUE) + ylab("Proportion of flock performing each behavior")+theme_classic()+ labs(fill='Behavior') 
+
+
+```
+
+# Flock size comparisons
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(fs_obs, aes(x=site_type, y=flock_size,fill=site_type)) +
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))+
+  geom_boxplot()+geom_jitter(shape=16, position=position_jitter(0.2)) +theme_classic()+ xlab("Site type") + ylab("Flock size")
+
+ggplot(fs_obs2, aes(x=site_type, y=flock_size_mean, ymin = flock_size_mean-flock_size_sd, ymax = flock_size_mean+flock_size_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ xlab("Site type") + ylab("Flock Size") + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme_classic()+ 
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))
+```
+Log 10 transform flock size
+```{r}
+ggplot(fs_obs, aes(x=site_type, y=log10(flock_size),fill=site_type)) +
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))+
+  geom_boxplot()+geom_jitter(shape=16, position=position_jitter(0.2)) +theme_classic()+ xlab("Site type") + ylab("Flock size")
+
+ggplot(fs_obs2, aes(x=site_type, y=log10(flock_size_mean), ymin = log10(flock_size_mean)-log10(flock_size_sd), ymax = log10(flock_size_mean)+log10(flock_size_sd))) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ xlab("Site type") + ylab("Flock Size") + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme_classic()+ 
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))
+```
+
+```{r}
+shapiro.test(fs_obs$flock_size) #not normally distributed so t-test isn't valid 
+t.test(fs_obs$flock_size~fs_obs$site_type) #NOT significant with t-test
+wilcox.test(fs_obs$flock_size~fs_obs$site_type) #NOT significant with non-parametric test
+
+#log10 transform to see if data are now normally distrbuted... 
+shapiro.test(log10(fs_obs$flock_size)) #normally distributed 
+var.test(log10(fs_obs$flock_size)~ fs_obs$site_type) #F-test to test for homogeneity in variances; variances are equal
+t.test(log10(fs_obs$flock_size)~fs_obs$site_type) #NOT significant with t-test
+
+```
+
+
+
+## Individual behavior comparisons
+
+### Foraging 
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(fs_obs, aes(x=site_type, y=prop_forage,fill=site_type)) + 
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))+
+  geom_boxplot()+geom_jitter(shape=16, position=position_jitter(0.2))  + xlab("Site type") + ylab("Proportion of flock foraging") +theme_classic()
+
+ggplot(fs_obs2, aes(x=site_type, y=prop_forage_mean, ymin = prop_forage_mean-prop_forage_sd, ymax = prop_forage_mean+prop_forage_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type))+ xlab("Site type") + ylab("Proportion of flock foraging") + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme_classic()+ 
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))
+```
+
+```{r}
+shapiro.test(fs_obs$prop_forag) #Normally distributed so t-test is valid
+var.test(fs_obs$prop_forag ~ fs_obs$site_type) #F-test to test for homogeneity in variances; variances are equal 
+t.test(fs_obs$prop_forage~fs_obs$site_type) #NOT significant with t-test
+```
+
+
+### Preening
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(fs_obs, aes(x=site_type, y=prop_preen,fill=site_type)) + 
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))+
+  geom_boxplot()+geom_jitter(shape=16, position=position_jitter(0.2)) +theme_classic() + xlab("Site type") + ylab("Proportion of flock preening")
+
+ggplot(fs_obs2, aes(x=site_type, y=prop_preen_mean, ymin = prop_preen_mean-prop_preen_sd, ymax = prop_preen_mean+prop_preen_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ xlab("Site type") + ylab("Proportion of flock preening") + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme_classic()+ 
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))
+
+```
+
+```{r}
+shapiro.test(fs_obs$prop_preen) #Normally distributed so t-test is valid
+var.test(fs_obs$prop_preen ~ fs_obs$site_type) #F-test to test for homogeneity in variances; variances are equal 
+t.test(fs_obs$prop_preen~fs_obs$site_type) #NOT significant with t-test
+```
+
+### Grooming (preening + bathing)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(fs_obs, aes(x=site_type, y=prop_groom,fill=site_type)) + 
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))+
+  geom_boxplot()+geom_jitter(shape=16, position=position_jitter(0.2)) +theme_classic() + xlab("Site type") + ylab("Proportion of flock grooming")
+
+ggplot(fs_obs2, aes(x=site_type, y=prop_groom_mean, ymin = prop_groom_mean-prop_groom_sd, ymax = prop_groom_mean+prop_groom_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ xlab("Site type") + ylab("Proportion of flock grooming") + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme_classic()+ 
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))
+
+```
+
+```{r}
+shapiro.test(fs_obs$prop_groom) #Normally distributed so t-test is valid
+var.test(fs_obs$prop_groom ~ fs_obs$site_type) #F-test to test for homogeneity in variances; variances are equal 
+t.test(fs_obs$prop_groom~fs_obs$site_type) #NOT significant with t-test
+```
+
+
+
+### Vigilance
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(fs_obs, aes(x=site_type, y=prop_vig,fill=site_type)) + 
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))+
+  geom_boxplot()+geom_jitter(shape=16, position=position_jitter(0.2)) +theme_classic() + xlab("Site type") + ylab("Proportion of flock vigilant")
+
+ggplot(fs_obs2, aes(x=site_type, y=prop_vig_mean, ymin = prop_vig_mean-prop_vig_sd, ymax = prop_vig_mean+prop_vig_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ xlab("Site type") + ylab("Proportion of flock vigilant") + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme_classic()+ 
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))
+
+ggplot(fs_obs2, aes(x=site_type, y=prop_vig_mean, ymin = prop_vig_mean-prop_vig_sd, ymax = prop_vig_mean+prop_vig_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type))+ xlab("Site type") + ylab("Proportion of flock vigilant") + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme_classic()+ 
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))
+
+
+#double checking vigilance and foraging for poster (mins and max's)
+head(fs_obs2)
+fs_obs2check<-fs_obs2
+fs_obs2check$vigmeanplussd<-fs_obs2check$prop_vig_mean+fs_obs2check$prop_vig_sd
+summary(fs_obs2check$vigmeanplussd)
+fs_obs2check$foragmeanplussd<-fs_obs2check$prop_forage_mean+fs_obs2check$prop_forage_sd
+summary(fs_obs2check$foragmeanplussd)
+
+fs_obs2check$vigminussd<-fs_obs2check$prop_vig_mean-fs_obs2check$prop_vig_sd
+summary(fs_obs2check$vigminussd)
+
+fs_obs2check$foragmeanminussd<-fs_obs2check$prop_forage_mean-fs_obs2check$prop_forage_sd
+summary(fs_obs2check$foragmeanminussd)
+
+summary(fs_obs2check$prop_forage_mean)
+summary(fs_obs2check$prop_vig_mean)
+```
+
+```{r}
+shapiro.test(fs_obs$prop_vig) #Normally distributed so t-test is valid
+var.test(fs_obs$prop_vig ~ fs_obs$site_type) #F-test to test for homogeneity in variances; variances are equal 
+t.test(fs_obs$prop_vig~fs_obs$site_type) #significant with t-test
+```
+
+
+### Resting
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(fs_obs, aes(x=site_type, y=prop_rest,fill=site_type)) + 
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))+
+  geom_boxplot()+geom_jitter(shape=16, position=position_jitter(0.2)) +theme_classic() + xlab("Site type") + ylab("Proportion of flock resting")
+
+ggplot(fs_obs2, aes(x=site_type, y=prop_rest_mean, ymin = prop_rest_mean-prop_rest_sd, ymax = prop_rest_mean+prop_rest_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ xlab("Site type") + ylab("Proportion of flock resting") + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme_classic()+ 
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))
+```
+
+```{r}
+shapiro.test(fs_obs$prop_rest) #not normally distributed so t-test isn't valid 
+t.test(fs_obs$prop_rest~fs_obs$site_type) #NOT significant with t-test
+wilcox.test(fs_obs$prop_rest~fs_obs$site_type) #NOT significant with non-parametric test
+```
+
+
+### Walking
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(fs_obs, aes(x=site_type, y=prop_walk,fill=site_type)) + 
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))+
+  geom_boxplot()+geom_jitter(shape=16, position=position_jitter(0.2)) +theme_classic() + xlab("Site type") + ylab("Proportion of flock walking")
+
+ggplot(fs_obs2, aes(x=site_type, y=prop_walk_mean, ymin = prop_walk_mean-prop_walk_sd, ymax = prop_walk_mean+prop_walk_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ xlab("Site type") + ylab("Proportion of flock walking") + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme_classic()+ 
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))
+```
+
+```{r}
+shapiro.test(fs_obs$prop_walk) #not normally distributed so t-test isn't valid 
+t.test(fs_obs$prop_walk~fs_obs$site_type) #NOT significant with t-test
+wilcox.test(fs_obs$prop_walk~fs_obs$site_type) #significant with non-parametric test
+```
+
+#### Arrange multiple figures onto one plot
+
+```{r}
+#order plots by most frequent to least frequent behavior
+#first figure out order of behaviors, then change barchart 
+
+order<-dplyr::select(fs_obs2, prop_forage_mean,prop_vig_mean,prop_walk_mean,prop_groom_mean,prop_rest_mean)
+
+#order by behavior means
+order2<-as.data.frame(colMeans(order))
+order2$behavior <- rownames(order2)
+order2<-rename(order2, avg = `colMeans(order)`)
+order2 %<>% arrange(-avg)
+order2$behavior
+
+#order by behavior sums
+colSums(order)
+order3<-as.data.frame(colSums(order))
+order3$behavior <- rownames(order3)
+order3<-rename(order3, sum = `colSums(order)`)
+order3%<>% arrange(-sum)
+order3$behavior
+
+#should be the same, are they? 
+order2$behavior==order3$behavior #yes
+
+#order for plots:
+order2$behavior
+
+#Modify barplot:
+
+bar<- ggplot(data=fs_collapsed2, aes(x=site_type, y=mean, fill=Activity2)) +
+  geom_bar(stat="identity") + scale_fill_viridis(discrete=TRUE)+ theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())  
+
+fs_bar<-fs_collapsed2 #order with most common on top
+fs_bar2<-fs_collapsed2#order with most common on bottom
+
+fs_bar$Activity2 <- factor(fs_bar$Activity2,                                    # Change ordering manually
+                  levels = c("Foraging", "Grooming", "Vigilant", "Resting", "Walking"))
+
+fs_bar2$Activity2 <- factor(fs_bar2$Activity2,                                    # Change ordering manually
+                  levels = c("Walking", "Resting", "Vigilant", "Grooming", "Foraging"))
+
+bar2ex<- ggplot(data=fs_bar, aes(x=site_type, y=mean, fill=Activity2)) +
+  geom_bar(stat="identity") + scale_fill_viridis(discrete=TRUE) #most common on top
+
+bar3ex<- ggplot(data=fs_bar2, aes(x=site_type, y=mean, fill=Activity2)) +
+  geom_bar(stat="identity") + scale_fill_viridis(direction=-1,discrete=TRUE)#most common on bottom
+```
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+fplot<- ggplot(fs_obs2, aes(x=site_type, y=prop_forage_mean, ymin = prop_forage_mean-prop_forage_sd, ymax = prop_forage_mean+prop_forage_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type))+ geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983")) + ggtitle("Foraging") +
+  scale_y_continuous(limits=c(0, 1))
+
+f2plot<- ggplot(fs_obs2, aes(x=site_type, y=prop_forage_mean, ymin = prop_forage_mean-prop_forage_sd, ymax = prop_forage_mean+prop_forage_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type))+ geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+  scale_color_manual(values=c("#440154", "#440154"))+
+  scale_fill_manual(values=c("#440154", "#440154")) + ggtitle("Foraging") +
+  scale_y_continuous(limits=c(0, 1)) #purple
+
+f3plot<- ggplot(fs_obs2, aes(x=site_type, y=prop_forage_mean, ymin = prop_forage_mean-prop_forage_sd, ymax = prop_forage_mean+prop_forage_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type))+ geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+  scale_color_manual(values=c("#5ec962", "#5ec962"))+
+  scale_fill_manual(values=c("#5ec962", "#5ec962")) + ggtitle("Foraging") +
+  scale_y_continuous(limits=c(0, 1))
+
+gplot<-ggplot(fs_obs2, aes(x=site_type, y=prop_groom_mean, ymin = prop_groom_mean-prop_groom_sd, ymax = prop_groom_mean+prop_groom_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+  geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))+ ggtitle("Grooming") +
+  scale_y_continuous(limits=c(0, 1))
+
+g2plot<-ggplot(fs_obs2, aes(x=site_type, y=prop_groom_mean, ymin = prop_groom_mean-prop_groom_sd, ymax = prop_groom_mean+prop_groom_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+  geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+  scale_color_manual(values=c("#3b528b", "#3b528b"))+
+  scale_fill_manual(values=c("#3b528b", "#3b528b"))+ ggtitle("Grooming") +
+  scale_y_continuous(limits=c(0, 1)) #blue
+
+g3plot<-ggplot(fs_obs2, aes(x=site_type, y=prop_groom_mean, ymin = prop_groom_mean-prop_groom_sd, ymax = prop_groom_mean+prop_groom_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+  geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+  scale_color_manual(values=c("#21918c", "#21918c"))+
+  scale_fill_manual(values=c("#21918c", "#21918c"))+ ggtitle("Grooming") +
+  scale_y_continuous(limits=c(0, 1))
+
+vplot<- ggplot(fs_obs2, aes(x=site_type, y=prop_vig_mean, ymin = prop_vig_mean-prop_vig_sd, ymax = prop_vig_mean+prop_vig_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+  
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))+ ggtitle("Vigilant") +
+  scale_y_continuous(limits=c(0, 1))
+
+v2plot<- ggplot(fs_obs2, aes(x=site_type, y=prop_vig_mean, ymin = prop_vig_mean-prop_vig_sd, ymax = prop_vig_mean+prop_vig_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+  
+  scale_color_manual(values=c("#21918c", "#21918c"))+
+  scale_fill_manual(values=c("#21918c", "#21918c"))+ ggtitle("Vigilant") +
+  scale_y_continuous(limits=c(0, 1)) #teal
+
+v3plot<- ggplot(fs_obs2, aes(x=site_type, y=prop_vig_mean, ymin = prop_vig_mean-prop_vig_sd, ymax = prop_vig_mean+prop_vig_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+  
+  scale_color_manual(values=c("#fde725", "#fde725"))+
+  scale_fill_manual(values=c("#fde725", "#fde725"))+ ggtitle("Vigilant") +
+  scale_y_continuous(limits=c(0, 1))
+
+rplot<-ggplot(fs_obs2, aes(x=site_type, y=prop_rest_mean, ymin = prop_rest_mean-prop_rest_sd, ymax = prop_rest_mean+prop_rest_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))+ ggtitle("Resting") +
+  scale_y_continuous(limits=c(0, 1))
+
+r2plot<-ggplot(fs_obs2, aes(x=site_type, y=prop_rest_mean, ymin = prop_rest_mean-prop_rest_sd, ymax = prop_rest_mean+prop_rest_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+  scale_color_manual(values=c("#5ec962", "#5ec962"))+
+  scale_fill_manual(values=c("#5ec962", "#5ec962"))+ ggtitle("Resting") +
+  scale_y_continuous(limits=c(0, 1)) #green
+
+r3plot<-ggplot(fs_obs2, aes(x=site_type, y=prop_rest_mean, ymin = prop_rest_mean-prop_rest_sd, ymax = prop_rest_mean+prop_rest_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+  scale_color_manual(values=c("#440154", "#440154"))+
+  scale_fill_manual(values=c("#440154", "#440154"))+ ggtitle("Resting") +
+  scale_y_continuous(limits=c(0, 1))
+
+wplot<-ggplot(fs_obs2, aes(x=site_type, y=prop_walk_mean, ymin = prop_walk_mean-prop_walk_sd, ymax = prop_walk_mean+prop_walk_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))+ ggtitle("Walking") +
+  scale_y_continuous(limits=c(0, 1))
+
+w2plot<-ggplot(fs_obs2, aes(x=site_type, y=prop_walk_mean, ymin = prop_walk_mean-prop_walk_sd, ymax = prop_walk_mean+prop_walk_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),color="black",shape=21,aes(fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+  scale_color_manual(values=c("#fde725", "#fde725"))+
+  scale_fill_manual(values=c("#fde725", "#fde725"))+ ggtitle("Walking") +
+  scale_y_continuous(limits=c(0, 1)) #yellow
+
+#w2plot<-ggplot(fs_obs2, aes(x=site_type, y=prop_walk_mean, ymin = prop_walk_mean-prop_walk_sd, ymax = prop_walk_mean+prop_walk_sd)) +  
+#geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+ # scale_color_manual(values=c("#fde725", "#fde725"))+
+ # scale_fill_manual(values=c("#fde725", "#fde725"))+ ggtitle("Walking") +
+ # scale_y_continuous(limits=c(0, 1)) #yellow
+
+w2plot2<-ggplot(fs_obs2, aes(x=site_type, y=prop_walk_mean, ymin = prop_walk_mean-prop_walk_sd, ymax = prop_walk_mean+prop_walk_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),color="black",shape=21,aes(fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+  scale_color_manual(values=c("#fde725", "#fde725"))+
+  scale_fill_manual(values=c("#fde725", "#fde725"))+ ggtitle("Walking") +
+  scale_y_continuous(limits=c(0, 1)) #yellow
+
+
+w3plot<-ggplot(fs_obs2, aes(x=site_type, y=prop_walk_mean, ymin = prop_walk_mean-prop_walk_sd, ymax = prop_walk_mean+prop_walk_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+  scale_color_manual(values=c("#3b528b", "#3b528b"))+
+  scale_fill_manual(values=c("#3b528b", "#3b528b"))+ ggtitle("Walking") +
+  scale_y_continuous(limits=c(0, 1))
+
+grid.arrange(vplot,wplot,fplot,gplot,rplot, ncol=3, 
+               bottom="Site Type", 
+               left="Proportion of flock doing each behavior") 
+
+
+##add in clustered bar graph:
+bar<- ggplot(data=fs_collapsed2, aes(x=site_type, y=mean, fill=Activity2)) +
+  geom_bar(stat="identity") + scale_fill_viridis(discrete=TRUE)+ theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank()) 
+
+bar<- ggplot(data=fs_collapsed2, aes(x=site_type, y=mean, fill=Activity2)) +
+  geom_bar(stat="identity") + scale_fill_viridis(discrete=TRUE)+ theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank()) 
+
+bar2<- ggplot(data=fs_bar, aes(x=site_type, y=mean, fill=Activity2)) +
+  geom_bar(stat="identity") + scale_fill_viridis(discrete=TRUE)+ theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())  #most common on top
+
+bar3<- ggplot(data=fs_bar2, aes(x=site_type, y=mean, fill=Activity2)) +
+  geom_bar(stat="identity") + scale_fill_viridis(direction=-1,discrete=TRUE)+ theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank()) #most common on bottom
+
+grid.arrange(f2plot,g2plot,v2plot,r2plot,w2plot,bar2, ncol=3, 
+               bottom="Site Type", 
+               left="Proportion of flock performing each behavior") #change color in w2plot and bar2
+
+grid.arrange(f2plot,g2plot,v2plot,r2plot,w2plot,bar3, ncol=3, 
+               bottom="Site Type", 
+               left="Proportion of flock performing each behavior") 
+
+```
+
+#### Adjust p-values for multiple comparisons
+
+```{r adjust p vals, echo=FALSE, message=FALSE}
+f<-t.test(fs_obs$prop_forage~fs_obs$site_type)$p.value
+p<-t.test(fs_obs$prop_preen~fs_obs$site_type)$p.value
+v<-t.test(fs_obs$prop_vig~fs_obs$site_type)$p.value
+r<-wilcox.test(fs_obs$prop_rest~fs_obs$site_type)$p.value
+w<-wilcox.test(fs_obs$prop_walk~fs_obs$site_type)$p.value
+
+pvals<-c(f,p,v,r,w)
+padj<-p.adjust(pvals, "bonferroni")
+
+pvalsDF <- data.frame (first_column  = c("foraging", "preening", "vigilant","resting","walking"),
+                     p.orig=pvals,
+                  p.adj= padj)
+                
+
+print(pvalsDF)
+```
+
+Main conclusion: 
+We only see differences in vigilance and walking behaviors across site types. No differences in behaviors most relevant to transmission (i.e., foraging or preening). 
+
+### What about a trade-off between foraging and vigilance?
+
+(ignore this section for now)
+
+Compare the ratio of prop foraging to prop vigilance across sites
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+ggplot(fs_obs, aes(x=site_type, y=forag.vig,fill=site_type)) + 
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))+
+  geom_boxplot()+geom_jitter(shape=16, position=position_jitter(0.2)) +theme_classic() + xlab("Site type") + ylab("Ratio of Foraging to Vigilance") + 
+
+ggplot(fs_obs2, aes(x=site_type, y=forag.vig_mean, ymin = forag.vig_mean-forag.vig_sd, ymax = forag.vig_mean+forag.vig_sd)) +  
+geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ xlab("Site type") + ylab("Ratio of Foraging to Vigilance") + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme_classic()+ 
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))
+
+ggplot(fs_obs2, aes(x=prop_forage_mean, y=prop_vig_mean, shape=site_type, color=site_type)) +
+  geom_point()+theme_classic()+ xlab("Mean Proportion Foraging") + ylab("Mean Proportion Vigilant") +
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))
+
+ggplot(fs_obs2, aes(x=prop_forage_mean, y=prop_vig_mean, shape=site_type, color=site_type)) +
+  geom_point()+theme_classic()+ xlab("Mean Proportion Foraging") + ylab("Mean Proportion Vigilant") +
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))
+
+ggplot(fs_obs2, aes(x=log10(prop_forage_mean), y=log10(prop_vig_mean), shape=site_type, color=site_type)) +
+  geom_point()+theme_classic()+ xlab("Log10 Mean Proportion Foraging") + ylab("Log10 Mean Proportion Vigilant") +
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))
+
+ggplot(fs_obs2, aes(x=prop_forage_mean, y=prop_vig_mean, shape=site_type, color=site_type)) +
+  geom_point()+theme_classic()+ xlab("Mean Proportion Foraging") + ylab("Mean Proportion Vigilant") +
+  scale_color_manual(values=c("#6F9408", "#5C5983"))+
+  scale_fill_manual(values=c("#6F9408", "#5C5983"))+
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2))
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+shapiro.test(fs_obs$forag.vig) #not normally distributed so t-test isn't valid 
+t.test(fs_obs$prop_walk~fs_obs$site_type) #NOT significant with t-test
+wilcox.test(fs_obs$prop_walk~fs_obs$site_type) #significant with non-parametric test
+```
+
+### Multivariate analyses
+
+#### What if we compare overall activity budgets between site types?
+
+Try a MANOVA first- code not running yet bc assumptions not met
+```{r eval=FALSE, include=FALSE}
+#test multivariate normality:
+
+fs_obs%>% group_by(site_type)%>%
+  shapiro_test(prop_forage, prop_groom, prop_vig, prop_rest, prop_walk)
+#A few variables aren't normally distributed 
+
+#Identify multicollinearity- Ideally the correlation between the outcome variables should be moderate, not too high. A correlation above 0.9 is an indication of multicollinearity, which is problematic for MANOVA. On other hand, if the correlation is too low, you should consider running separate one-way ANOVA for each outcome variable.
+cors<-fs_obs%>% cor_test(prop_forage, prop_groom, prop_vig, prop_rest, prop_walk)
+cors
+
+res.man <- manova(cbind(prop_forage, prop_groom, prop_vig, prop_rest, prop_walk) ~ site_type, data = fs_obs)
+summary(res.man)
+```
+
+
+Use a PCA to collapse variables and then compare by site type
+
+```{r}
+#PCA
+fs.pca <- fs_obs %>% dplyr::select(site_type, prop_forage,prop_preen,prop_vig,prop_rest,prop_walk)
+pca_FS <- prcomp(fs.pca[,-1] ) #leave out first column with site type
+pca_FS$sdev^2 #None of the eignenvalues are less than 1, so the PCA explains less variation than a single variable and thus is not useful 
+
+summary(pca_FS) #first two components explain  82% variance, three explain 98%
+fviz_eig(pca_FS)
+
+```
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+#Other PCA visuals (PCA isn't worth using so not necessary here)
+pca_FS$rotation
+
+
+#projecting original data into dimension-reduced space
+new_fs <- as.data.frame(as.matrix(fs.pca[,-1]) %*% pca_FS$rotation[,1:3])
+#adding back site_type tags
+new_fs$site_type <- fs.pca$site_type
+
+#plotting
+fviz_pca_var(pca_FS,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+)
+
+qplot(PC1, PC2, data = new_fs, colour = site_type)    
+
+fviz_pca_ind(pca_FS, label="none", habillage=fs.pca$site_type)
+
+p <- fviz_pca_ind(pca_FS, label="none", habillage=fs.pca$site_type,
+                  addEllipses=TRUE, ellipse.level=0.95)
+p
+
+fviz_pca_biplot(pca_FS, label="var", habillage=fs.pca$site_type,
+                addEllipses=TRUE, ellipse.level=0.95) 
+```
+Conclusion: Eigenvalues less than 1 indicate that the PCA is not useful for summarizing the variables. 
+## New models using individual scans as response
+
+Prepare data
+```{r}
+head(flockscans)
+scans<-flockscans
+scans$time <-substr(scans$time, 12,20)
+scans$notes <- NULL
+scans[is.na(scans)] <- 0
+scans$preen_tot <- scans$preening+scans$preening_tree + scans$bathing #combining all preening with bathing too
+scans$vig_tot <- scans$vigilant+scans$vigilant_tree
+scans$rest_tot <- scans$resting+scans$resting_tree
+scans %<>% dplyr::select(date,site,site_type,time,foraging,preen_tot,vig_tot,rest_tot,walking,bathing)
+scans %<>%
+  mutate(flocksize = dplyr::select(., foraging:bathing) %>% rowSums(na.rm = TRUE))
+head(scans)
+
+
+```
+Quick data exploration before models
+
+```{r}
+ggplot(scans, aes(x=site_type, y=foraging/flocksize)) + 
+  geom_boxplot()+geom_jitter(position=position_dodge(0.8)) +theme_classic()
+
+ggplot(scans, aes(x=as.factor(date), y=foraging/flocksize,color=site_type)) + 
+  geom_boxplot()+geom_jitter(position=position_dodge(0.8)) +theme_classic()
+
+hist(scans$foraging)
+hist(scans$preen_tot)
+hist(scans$vig_tot)
+hist(scans$rest_tot)
+hist(scans$walking)
+hist(scans$bathing)
+
+hist(scans$flocksize)
+
+summary(scans$flocksize)
+
+
+
+
+```
+
+
+Models
+
+Foraging
+```{r}
+forag_int <-glmmTMB(foraging~1+ offset(log(flocksize)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+summary(forag_int)
+
+forag1 <-glmmTMB(foraging~site_type+ offset(log(flocksize)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+summary(forag1)
+
+forag2 <-glmmTMB(foraging~site+ offset(log(flocksize)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+
+summary(forag2)
+
+forag3 <-glmmTMB(foraging~site_type+ offset(log(flocksize)) +(1|date)+(1|site),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+
+summary(forag3)
+
+anova(forag_int,forag1,forag2,forag3) 
+
+AICtab(forag_int,forag1,forag2,forag3) #model 2 (site only performs best)
+
+
+```
+
+Preening
+```{r}
+preen_int <-glmmTMB(preen_tot~1+ offset(log(flocksize)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+summary(preen_int)
+
+preen1 <-glmmTMB(preen_tot~site_type+ offset(log(flocksize)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+summary(preen1)
+
+preen2 <-glmmTMB(preen_tot~site+ offset(log(flocksize)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+
+summary(preen2)
+
+preen3 <-glmmTMB(preen_tot~site_type+ offset(log(flocksize)) +(1|date)+(1|site),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+
+summary(preen3)
+
+anova(preen_int,preen1,preen2,preen3) 
+
+AICtab(preen_int,preen1,preen2,preen3) #intercept only model performs best
+
+
+```
+
+Vigilance
+```{r}
+vig_int <-glmmTMB(vig_tot~1+ offset(log(flocksize)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+summary(vig_int)
+
+vig1 <-glmmTMB(vig_tot~site_type+ offset(log(flocksize)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+summary(vig1)
+
+vig2 <-glmmTMB(vig_tot~site+ offset(log(flocksize)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+
+summary(vig2)
+
+vig3 <-glmmTMB(vig_tot~site_type+ offset(log(flocksize)) +(1|date)+(1|site),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+
+summary(vig3)
+
+anova(vig_int,vig1,vig2,vig3) 
+
+AICtab(vig_int,vig1,vig2,vig3) #site model performs best
+
+
+```
+
+Walking
+```{r}
+walk_int <-glmmTMB(walking~1+ offset(log(flocksize)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+summary(walk_int)
+
+walk1 <-glmmTMB(walking~site_type+ offset(log(flocksize)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+summary(walk1)
+
+#walk2 <-glmmTMB(walking~site+ offset(log(flocksize)) +(1|date),
+                    #family=nbinom2,
+                   # ziformula=~1,
+                    #data=scans) #this model doesn't converge
+
+#summary(walk2) #this model doesn't work
+
+walk3 <-glmmTMB(walking~site_type+ offset(log(flocksize)) +(1|date)+(1|site),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+
+summary(walk3)
+
+anova(walk_int,walk1,walk3) 
+
+AICtab(walk_int,walk1,walk3) #site_type model performs best, site_type with site as RE also performs well
+
+
+```
+
+Resting
+```{r}
+rest_int <-glmmTMB(rest_tot~1+ offset(log(flocksize)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+summary(rest_int)
+
+rest1 <-glmmTMB(rest_tot~site_type+ offset(log(flocksize)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+summary(rest1)
+
+rest2 <-glmmTMB(rest_tot~site+ offset(log(flocksize)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+
+summary(rest2)
+
+rest3 <-glmmTMB(rest_tot~site_type+ offset(log(flocksize)) +(1|date)+(1|site),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=scans)
+
+summary(rest3)
+
+anova(rest_int,rest1,rest2,rest3) 
+
+AICtab(rest_int,rest1,rest2,rest3) 

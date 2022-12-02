@@ -1,0 +1,2050 @@
+---
+title: "Activity Budget Analysis"
+author: "Cali Wilson"
+date: "5/20/2022"
+output: html_document
+---
+# How does urbanization influence ibis behaviors relevant to transmission? 
+
+### Specifically, how does variation in flock size and frequency of provisioning influence these behaviors? 
+
+#### Data:
+
+10-minute focal follow observations of birds at 5 urban parks in South Florida. Follows conducted during summer 2019.
+
+**Focal follows were only conducted in urban parks** 
+
+Note: Focal follows were **only** conducted when people were not actively feeding the birds so foraging means probing on the ground for food. The few instances of consuming human provided food are cases where ibis were foraging 'naturally' and happened upon scraps of anthropogenic food that was already on the ground. 
+
+
+##### Sample Sizes / Data Structure
+
+Observations consist of 168 focal follows lasting > 2 minutes. Five urban parks were samples for ~30 focals per site. Sites were visited 2-4 times each. 
+
+**Provisioning estimates:** Each visit, # of people and groups feeding birds were recorded for duration of visit. Provisioning was estimated by counting the number of groups that fed the birds per visit and dividing by total time I was at the site to get **# provisioning events/ hour**. Each focal follow was paired with the average # of provisioning events per hour on day/site of the focal follow.  
+
+**Flock size estimates:** Every ~30 minutes, flock size was recorded. I paired each focal follow with the nearest estimate of flock size. 
+
+```{r Load Packages, message=FALSE, warning=FALSE, include=FALSE}
+
+#Load packages
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(reshape2)
+library(ggplot2)
+library(lubridate)
+library(skimr) 
+library(gridExtra)
+library(Hmisc) 
+library(viridis)
+library(FSA)
+library(MASS)
+library(glmmTMB)
+library(DHARMa)
+library(bbmle) 
+library(data.table)
+library(mosaic)  # standardizing variables
+```
+
+```{r Set Directory and load data, message=FALSE, warning=FALSE, include=FALSE}
+#Set working directory----
+setwd("~/Desktop/chapter 3 ibis data chapter/2019 Activity Budget Data Analysis")
+
+#Read in data----
+behav<-read_excel("Summer 2019 Field Data.xlsx", 
+                  sheet = "behaviorsTable") #activity budgets
+behav$activity2 <- paste(behav$Activity, behav$Location) #combine two levels of behavior types
+focTable_all<- read_excel("Summer 2019 Field Data.xlsx", 
+                          sheet = "focalsTable") #read in 'focTable' to get the end focal times 
+groupsize<-read_excel("Summer 2019 Field Data.xlsx", 
+                      sheet = "Flock Composition")
+people<- read_excel("Summer 2019 Field Data.xlsx", 
+                    sheet = "People Feeding")
+
+flockcomp<- read_excel("Summer 2019 Field Data.xlsx", 
+                    sheet = "Flock Composition")
+
+focTable <- dplyr::select(focTable_all, device_ID, session_start_timeStamp,focal_start_timeStamp,focal_end_timeStamp) #select relevant columns
+
+behav <- merge(behav, focTable, by=c("device_ID", "session_start_timeStamp", "focal_start_timeStamp")) #add end times to behav dataframe; the length should be the same as 'behav' but with 1 extra variable
+
+proximity<- read_excel("Summer 2019 Field Data.xlsx", 
+                       sheet = "proximity") #read in 'proximity' to get site names
+```
+
+```{r data wrangling, message=FALSE, warning=FALSE, include=FALSE}
+proximity <- dplyr::select(proximity, site, actor=focalID)
+proximity <- unique(proximity) 
+behav <- merge(behav, proximity, by=c("actor")) #add site name to behav
+
+behav2 <- dplyr::select(behav,site,actor,Observer,device_ID,session_start_timeStamp,focal_start_timeStamp,behavior_timeStamp,focal_end_timeStamp,Activity,Location,activity2,Notes1=Notes,Notes2=...19,Notes3=...20) #remove irrelevant variables and modify note names to clean up data
+
+behav2$focalID <- as.character(paste(behav2$device_ID, behav2$focal_start_timeStamp, sep = "")) #create unique code 'focalID' for each observation 
+event <- as.data.frame(subset(behav2, Activity == "Defecation" | Activity == "Socialization")) #separate 'event' behaviors for other analysis
+behav2 <- behav2[behav2$Activity!='Defecation' & behav2$Activity!='Socialization', ]#remove 'event' behaviors where duration doesn't make sense
+
+#there is one focal follow at MCD (indiv MCD33) where an activity button was pressed 1 second after the focal ended (iPad glitch) this messes up proportions by 1 second for this focal later on. To fix this, we need to remove row if behavior_timeStamp is after focal_end_timeStamp. 
+behav2$problem<-behav2$behavior_timeStamp>behav2$focal_end_timeStamp #TRUE indicates a problem
+
+behav2<-behav2[behav2$problem != TRUE, ] #remove observations where TRUE
+
+#Turn 'behav2' raw data into activity budgets with proportions for activities with duration---- 
+subsetFocals <- function(behav2, focalID){
+  subset <- behav2[behav2$focalID,]
+  return(subset)
+}
+
+summarizedData <- data.frame()
+listFocalIDs <- unique(behav2$focalID)
+for(i in 1:length(listFocalIDs)){
+  focal <- subset(behav2, focalID==listFocalIDs[i])
+  focal <- focal[order(focal$behavior_timeStamp),] 
+  focal$PrevBehav <-lag(focal$activity2) #make column with previous behavior
+  focal$PrevBehav[1] <- "firstBehav" #give first column a value since it wont have a previous behav
+  focal <- focal[which(!focal$activity2==focal$PrevBehav),] #delete duplicates
+  focal$start <- focal$behavior_timeStamp #create start variable
+  focal$stop <- lead(focal$behavior_timeStamp) #create stop variable
+  focal$stop <- ifelse(is.na(focal$stop), focal$focal_end_timeStamp, focal$stop)
+  focal$start <- ymd_hms(focal$start)
+  focal$stop <- ymd_hms(focal$stop) 
+  focal$duration <- difftime(focal$stop, focal$start) #the duration is in seconds
+  focal$duration <- as.numeric(focal$duration) #change to numeric
+  focal$duration<-ceiling(focal$duration) #round behavior duration to nearest second
+  focal$focalduration <- sum(focal$duration, na.rm = TRUE) #create column with focal duration
+  focal$focalduration <- ceiling(focal$focalduration)#round duration to nearest second
+  focal$activity_proportion <- focal$duration/focal$focalduration #create proportion
+  focalID <- focal$focalID
+  activity <- focal$activity2
+  activity_proportion <- focal$activity_proportion
+  actor <- focal$actor
+  site <- focal$site
+  focalduration <- focal$focalduration
+  activityduration <-focal$duration
+  start <-focal$start
+  stop <- focal$stop
+  summarizedRow <- cbind.data.frame(site, activity, activity_proportion, actor, focalID,focalduration, activityduration, start, stop)
+  summarizedData <- rbind(summarizedData, summarizedRow)
+}
+
+#only keep focals with duration greater than or equal to 120 seconds
+summarizedData<- summarizedData[summarizedData$focalduration >=120, ]
+
+sumofActivityProps <-aggregate(x=summarizedData$activity_proportion, #add activities types together by focal ID 
+                                by=list(summarizedData$activity, summarizedData$focalID), #sum all all activity proportions by individual follow
+                                FUN=sum) 
+names(sumofActivityProps)[names(sumofActivityProps) == "Group.1"] <- "Activity" 
+names(sumofActivityProps)[names(sumofActivityProps) == "Group.2"] <- "focalID" 
+names(sumofActivityProps)[names(sumofActivityProps) == "x"] <- "activity_proportion" 
+
+
+
+#add sites back in from 'behav2'
+behav3 <-dplyr::select(behav2, site,Observer, focalID) #modify behav2 to add back in site and observer
+behav3 <- unique(behav3) #remove duplicate rows before merging
+activityProps_byindividual <- merge(sumofActivityProps, behav3, by="focalID") #merge data frames 
+
+#Data will look weird unless 0's are added to focal follows where certain behaviors do not occur
+transposing <-spread(activityProps_byindividual, key=Activity, value=activity_proportion, fill="0" )#spread the data to include 0's
+activityProps_byindividual2 <-melt(transposing, id.vars=c("focalID", "site","Observer")) #melt it back together in the correct format
+names(activityProps_byindividual2)[names(activityProps_byindividual2) == "variable"] <- "Activity" #rename column
+names(activityProps_byindividual2)[names(activityProps_byindividual2) == "value"] <- "activity_proportion" #rename column
+activityProps_byindividual2$activity_proportion <- as.numeric(activityProps_byindividual2$activity_proportion)
+
+#add in focal start time so we have time of day measurement:
+#This can be done using the focalID because this variable was creating by merging device ID and focal start time
+activityProps_byindividual2$dat_time <- substr(activityProps_byindividual2$focalID, start=37, stop=55)
+activityProps_byindividual2$date <- substr(activityProps_byindividual2$dat_time, start=1, stop=10)
+activityProps_byindividual2$time <- substr(activityProps_byindividual2$dat_time, start=12, stop=19)
+
+#add in band numbers if known..
+focTable2 <- dplyr::select(focTable_all, device_ID, focal_start_timeStamp,Band_Num)
+focTable2$focalID <- as.character(paste(focTable2$device_ID, focTable2$focal_start_timeStamp, sep = ""))
+focTable2 <- dplyr::select(focTable2,focalID,Band_Num)
+activityProps_byindividual2 <- merge(activityProps_byindividual2, focTable2, by="focalID")
+indiv_ab <- activityProps_byindividual2 #rename to shorter df
+
+#bin time into specific times of day
+timeBin <- function(x) { 
+  if(x<=10) y <- "before 10am"
+  if(x > 10 & x <= 12) y <- "10am-12pm"
+  if(x > 12 & x <=14) y <- "12pm-2pm"
+  if(x > 14) y <- "after 2pm"
+  return(y)
+}
+
+indiv_ab$ToD <- sapply(indiv_ab$time,timeBin) 
+indiv_ab$ToD <- factor(indiv_ab$ToD, levels = c("before 10am", "10am-12pm", "12pm-2pm", "after 2pm"))
+
+#add in group size data------
+groupsize <- dplyr::select(groupsize, date, time,site,WHIB_total)
+
+groupsize$time <- as.character(groupsize$time)
+groupsize$time <- substr(groupsize$time, start=12, stop=19)
+groupsize$ToD <- sapply(groupsize$time,timeBin) 
+groupsize$ToD <- factor(groupsize$ToD, levels = c("before 10am", "10am-12pm", "12pm-2pm", "after 2pm"))
+groupsize$date <- as.character(groupsize$date)
+
+avgWHIB <- aggregate(x=groupsize$WHIB_total,
+                     by=list(groupsize$date,groupsize$ToD, groupsize$site), FUN=mean)  #now averge whib_total by ToD, date, and site
+names(avgWHIB)[names(avgWHIB) == "Group.1"] <- "date" #rename
+names(avgWHIB)[names(avgWHIB) == "Group.2"] <- "ToD" #rename
+names(avgWHIB)[names(avgWHIB) == "Group.3"] <- "site" #rename
+names(avgWHIB)[names(avgWHIB) == "x"] <- "meanWHIB" #rename
+
+indiv_ab <- merge(indiv_ab, avgWHIB, by=c("date", "ToD", "site")) 
+
+#Add in people feeding data----
+people <- na.omit(people) #omit rows with NAs
+#Fix time and date variables: 
+people$arrive <- as.character(people$arrive) 
+people$arrive <-substr(people$arrive, 12,19) #remove date (first 11 characters, keep 12-19)
+people$depart <- as.character(people$depart) #convert to character so we can remove date
+people$depart <-substr(people$depart, 12,19) #remove date (first 11 characters, keep 12-19)
+people$date <- as.character(people$date) #make this a character so it stays correct
+people$arriveTD<- as.character(paste(people$date, people$arrive , sep = " "))
+people$departTD<- as.character(paste(people$date, people$depart , sep = " "))
+people$arriveTD <-ymd_hms(people$arriveTD,tz="EDT") #convert time and date to something numeric for duration calculation
+people$departTD <-ymd_hms(people$departTD,tz="EDT")#convert time and date to something numeric for duration calculation
+people$durationMIN <- difftime(people$departTD, people$arriveTD, units = ("mins"))
+people$durationMIN <- as.numeric(people$durationMIN) #convert to numeric
+people$durationHR <- difftime(people$departTD, people$arriveTD, units = ("hours"))
+people$durationHR <- as.numeric(people$durationHR) #convert to numeric
+people$number_indiv_feeding <- as.numeric(people$number_indiv_feeding)
+people$groups_feeding <- as.numeric(people$groups_feeding)
+
+avgduration <- aggregate(x=people$durationHR, by=list(people$date,people$site), FUN=sum) 
+names(avgduration)[names(avgduration) == "Group.1"] <- "date" 
+names(avgduration)[names(avgduration) == "Group.2"] <- "site" 
+names(avgduration)[names(avgduration) == "x"] <- "durationHR" 
+
+avgindiv <- aggregate(x=people$number_indiv_feeding, by=list(people$date,people$site), FUN=sum) 
+names(avgindiv)[names(avgindiv) == "Group.1"] <- "date" 
+names(avgindiv)[names(avgindiv) == "Group.2"] <- "site" 
+names(avgindiv)[names(avgindiv) == "x"] <- "no.indiv" 
+
+
+avgevents <- aggregate(x=people$groups_feeding, by=list(people$date,people$site), FUN=sum) 
+names(avgevents)[names(avgevents) == "Group.1"] <- "date" 
+names(avgevents)[names(avgevents) == "Group.2"] <- "site" 
+names(avgevents)[names(avgevents) == "x"] <- "avgevents" 
+
+feeding <- merge(avgindiv, avgduration, by=c("date","site")) 
+feeding <- merge(feeding, avgevents, by=c("date","site")) 
+
+feeding$no.people.per.hour <- feeding$no.indiv/feeding$durationHR
+feeding$events.per.hour <- feeding$avgevents/feeding$durationHR
+
+indiv_ab2<- merge(feeding, indiv_ab,all.y = TRUE, by=c("date","site")) #use all.y=TRUE to add NAs where we don't have people feeding counts 
+
+#how should I reduce the number of variables? 
+unique(indiv_ab2$Activity) #too many variables 
+ab_summary<- dplyr::select(indiv_ab2,focalID, site, ToD, activity=Activity,prop=activity_proportion)
+s<-spread(ab_summary, key = activity, value = prop)
+
+
+#would like to know how many obs > 0 for each variable, create fxn to do this in skimr
+N.greaterthan0 <- function(column) {
+  greaterthan0 <- sum(column > 0)
+  
+  paste0(greaterthan0)
+}
+
+
+my_skim <- skim_with(numeric = sfl(greaterthan0=N.greaterthan0,median,p0 = NULL,p25=NULL,p50=NULL,p75=NULL,p100=NULL,hist=NULL)) #descriptive stats for each variable 
+
+s.sum.all<- s %>%my_skim %>% yank("numeric")  #all variables of class numeric
+
+s.sum.site<- s %>% 
+  dplyr::group_by(site) %>%  #all variables by site
+  my_skim  %>%
+  yank("numeric") #just numeric variables
+
+png("sum.all.png", height = 50*nrow(s.sum.all), width = 200*ncol(s.sum.all))
+grid.table(s.sum.all)
+
+
+png("sum.bysite.png", height = 22*nrow(s.sum.site), width = 190*ncol(s.sum.site))
+grid.table(s.sum.site)
+dev.off()
+
+s%>%
+  dplyr::select_if(is.numeric) %>% hist.data.frame() #histograms 
+
+#Group together certain variables
+fillcolumn <- function(x) { 
+  if(x=="Foraging soil") y <- "Foraging"
+  if(x=="Foraging water") y <- "Foraging"
+  if(x=="Foraging HO") y <- "Foraging"
+  if(x=="Foraging Hfood") y <- "Foraging"
+  if(x=="Grooming Preening") y <- "Grooming"
+  if(x=="Grooming Bathing") y <- "Grooming"
+  if(x=="Disturbance Response Flush") y <- "Disturbance"
+  if(x=="Disturbance Response Retreat") y <- "Disturbance"
+  if(x=="Drinking NA") y <- "Drinking"
+  if(x=="Flying NA") y <- "Flying"
+  if(x=="Loafing Asleep/Resting") y <- "Asleep/Resting"
+  if(x=="Loafing Vigilant") y <- "Vigilant"
+  if(x=="Walking on HO") y <- "Walking"
+  if(x=="Walking on pavement") y <- "Walking"
+  if(x=="Walking on soil/grass") y <- "Walking"
+  return(y)
+}
+ab_summary$act_type <- sapply(ab_summary$activity,fillcolumn) 
+head(ab_summary)
+
+grouped_summary<-ab_summary %>% 
+  group_by(focalID, act_type) %>% 
+  summarise(prop.new = sum(prop, na.rm = TRUE))
+
+checking<-grouped_summary %>% #check to make sure all props sum to 1
+  group_by(focalID) %>% 
+  summarise(prop.new2 = sum(prop.new, na.rm = TRUE))
+
+
+ifelse(checking$prop.new2 > 1.00000000000,checking$focalID,NA) #something weird is happening
+
+
+
+
+ggplot(data=grouped_summary, aes(x=focalID, y=prop.new, fill=act_type)) +
+  geom_bar(stat="identity") +
+  scale_fill_viridis(discrete=TRUE)+ ylab("Proportion of Time")+ xlab("Focal Follow") #checking all proportions add to 1
+
+all_urban<-grouped_summary %>% 
+  group_by(act_type) %>% 
+  summarise(prop.new = mean(prop.new, na.rm = TRUE))
+sum(all_urban$prop.new) #confirm props add to 1
+
+```
+
+```{r urban follows graphic, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(data=all_urban, aes(x="", y=prop.new, fill=act_type)) +
+  geom_bar(stat="identity") +
+  scale_fill_viridis(discrete=TRUE) + ylab("Proportion of Time")+ xlab("All urban follows")
+
+#tapply(grouped_summary$prop.new, grouped_summary$act_type, summary) 
+
+```
+
+Birds seem to spend the most time foraging, grooming, and being vigilant. 
+
+I am going to re-group these variables according to their relevance to different modes of parasite transmission (see different sections below). 
+
+```{r isotope data, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+##isotope data----
+
+isotope <- read_excel("murryetal2018philtrans_isotope.xlsx")
+
+isotope <- as.data.frame(subset(isotope, Site == "Indian Creek" | Site == "Dreher Park"| Site == "Gaines Park"| Site == "Juno Beach"))
+
+ggplot(isotope, aes(x=Site, y=d15N)) + 
+  geom_boxplot()  + ylab("d15N")
+
+ggplot(isotope, aes(x=Site, y=d13C)) + 
+  geom_boxplot()  + ylab("d13C")
+
+ggplot(isotope, aes(x=d13C, y=d15N, shape=Site, color=Site)) +geom_point()
+```
+
+
+
+```{r flock size, message=FALSE, warning=FALSE, include=FALSE}
+##add in flock size-----
+flocksize<- dplyr::select(flockcomp,date,site,time,WHIB_total)
+flocksize$date<-as.character(flocksize$date)
+flocksize$date <- substr(flocksize$date, start=1, stop=10)
+flocksize <- subset(flocksize, site == "ICP" | site == "DP"| site == "GP"| site == "JB"| site == "MCD")
+ggplot(flocksize, aes(x=site, y=,WHIB_total)) + 
+  geom_boxplot()  + ylab("White Ibis Flock Size")+ ggtitle("Plot of white ibis flock sizes recorded at each site")
+
+flocksize.bydate<- flocksize %>% 
+  dplyr::group_by(site,date) %>% summarise(size=mean(WHIB_total))
+
+##instead of average flock size, look at nearest flock size taken at time nearest to focal follow
+head(behav2)
+fs_new <- dplyr::select(behav2,site, focalID,focal_start_timeStamp,focal_end_timeStamp) 
+
+fs_new<-unique(fs_new) #get focalIDs + date and time
+fs_new$date <- substr(fs_new$focal_start_timeStamp, start=1, stop=10)
+fs_new$starttime <- substr(fs_new$focal_start_timeStamp, start=12, stop=19)
+fs_new$endtime <- substr(fs_new$focal_end_timeStamp, start=12, stop=19)
+
+
+fs_new2<-flocksize #get flock sizes + date and time
+fs_new2$obstime <- substr(fs_new2$time, start=12, stop=19)
+fs_new2$date <- substr(fs_new2$date, start=1, stop=10)
+fs_new2$dattime<-paste(fs_new2$date,fs_new2$obstime,sep=" ")
+
+fs_new3<-dplyr::select(fs_new,site,focalstart=focal_start_timeStamp,focalID)
+fs_new4<-dplyr::select(fs_new2,site,flockcount=dattime,WHIB_total)
+fs_new4$flockcount <-as.POSIXct(fs_new4$flockcount,format="%Y-%m-%d %H:%M:%S")
+fs_new3$focalstart <-as.POSIXct(fs_new3$focalstart,format="%Y-%m-%d,%H:%M:%S")
+
+# coerce to data.table and append join columns to preserve the original columns 
+setDT(fs_new3)
+setDT(fs_new4)
+
+fs_new3[, join_date := focalstart]
+fs_new4[, join_date := flockcount]
+
+setkey(fs_new3, site, join_date)
+setkey(fs_new4, site, join_date)
+
+
+flocksize.nearest<-fs_new4[fs_new3, roll = "nearest"]
+
+#check to see if it worked: 
+flocksize.nearest$flockdate <- substr(flocksize.nearest$flockcount, start=1, stop=10)
+flocksize.nearest$followdate <- substr(flocksize.nearest$focalstart, start=1, stop=10)
+flocksize.nearest$working<-flocksize.nearest$flockdate==flocksize.nearest$followdate #if any FALSE, not working 
+
+##seems to be working just fine
+ggplot(data=flocksize.nearest, aes(x=focalID, y=WHIB_total,fill=site)) +
+  geom_bar(stat="identity")
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+#How are predictor and behavior variables distributed? 
+
+#data = grouped_summary
+
+#check to see if any of the behavior variables are normally distributed:
+grouped.s<-spread(grouped_summary, key = act_type, value = prop.new)#convert to wide format
+#grouped.s%>%
+#  dplyr::select_if(is.numeric) %>% hist.data.frame() #clearly none of these are normally distributed 
+
+#Create predictors data frame for ease of analysis
+predictors <- indiv_ab2%>% dplyr::select(focalID,site,ToD,feedingperhour=no.people.per.hour)%>%unique()
+
+#Add flock size data to predictor data frame:
+#need to add date to focalID and then add it to predictors data frame
+dates<-dplyr::select(indiv_ab2,date,focalID,site)
+dates<-unique(dates)
+predictors <- merge(predictors, dates, by=c("site", "focalID"))
+flocksize.bydate<-unique(flocksize.bydate)
+predictors <- merge(predictors, flocksize.bydate, by=c("site", "date"))
+names(predictors)[names(predictors) == "size"] <- "avg_flock_size"
+
+flocksize.nearest<-dplyr::select(flocksize.nearest,site,focalID,flocksize_nearest=WHIB_total)
+predictors <- merge(predictors,flocksize.nearest, by=c("site", "focalID")) #153
+
+#grouped.s <- merge(grouped.s, predictors, by="focalID") #merge data frames
+
+##NEXT move on to one way comparisons between each behavior and site 
+#head(grouped_summary)
+#grouped_summary <- merge(grouped_summary, predictors, by="focalID")
+
+#ggplot(grouped_summary, aes(x=site, y=prop.new)) + 
+ # geom_boxplot() + facet_grid(.~act_type)
+
+#ggplot(grouped_summary, aes(x=act_type, y=prop.new,color=act_type)) + 
+ # geom_boxplot() + facet_grid(.~site) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, #hjust=1))+scale_color_viridis(discrete=TRUE)
+
+
+```
+
+```{r include=FALSE}
+fs_comparison<-dplyr::select(predictors,focalID,site,date,ToD,average=avg_flock_size,nearest=flocksize_nearest)
+fs_comparison<-gather(fs_comparison, key = method, value = flocksize,5:6)
+
+ggplot(data=fs_comparison, aes(x=focalID, y=flocksize,fill=method)) +
+geom_bar(stat="identity", position=position_dodge())+theme_classic()
+
+#1 means the two methods are equal
+#below 1 means average was an underestimate
+#above 1 means average was overestimate 
+ggplot(data=predictors, aes(x=focalID, y=flocksize_nearest/avg_flock_size,fill=site)) +
+geom_bar(stat="identity")+theme_classic()
+```
+
+
+```{r Re organize behavior data, message=FALSE, warning=FALSE, include=FALSE}
+## Linear models for each behavior ~ site, people feeding, flock size
+## Use glmmTMB with a negative binomial and then offset the model by the duration of a follow- e.g. don't use proportion data in this model
+
+#restructure data in groups of relevant behaviors as counts rather than proportions 
+#use 'summarizedData' data frame 
+
+sumofActivityCounts <- aggregate(x=summarizedData$activityduration, #add activities types together by focal ID 
+                                by=list(summarizedData$activity, summarizedData$focalID), #sum all all activity time counts by individual follow
+                                FUN=sum) 
+names(sumofActivityCounts)[names(sumofActivityCounts) == "Group.1"] <- "Activity" 
+names(sumofActivityCounts)[names(sumofActivityCounts) == "Group.2"] <- "focalID" 
+names(sumofActivityCounts)[names(sumofActivityCounts) == "x"] <- "activity_count" 
+
+
+#add sites back in from 'behav3'
+activityCounts_byindividual <- merge(sumofActivityCounts, behav3, by="focalID") #merge data frames 
+
+#Data will look weird unless 0's are added to focal follows where certain behaviors do not occur
+transposing <-spread(activityCounts_byindividual, key=Activity, value=activity_count, fill="0" )#spread the data to include 0's
+activityCounts_byindividual2 <-melt(transposing, id.vars=c("focalID", "site","Observer")) #melt it back together in the correct format
+names(activityCounts_byindividual2)[names(activityCounts_byindividual2) == "variable"] <- "Activity" #rename column
+names(activityCounts_byindividual2)[names(activityCounts_byindividual2) == "value"] <- "activity_count" #rename column
+activityCounts_byindividual2$activity_count <- as.numeric(activityCounts_byindividual2$activity_count)
+
+#add back in duration from 'summarizedData'
+head(summarizedData)
+totaldurations <- dplyr::select(summarizedData, focalID,focalduration)
+totaldurations <- unique(totaldurations)
+activityCounts_byindividual2 <- merge(activityCounts_byindividual2, totaldurations, by="focalID")
+dates<-dplyr::select(predictors, focalID,date)
+dates<-unique(dates)
+activityCounts_byindividual2 <- merge(activityCounts_byindividual2, dates, by="focalID")
+
+#now this dataframe (activityCounts_byindividual2) can be used to run models
+#will need to restructure once I collapse behaviors down but for now this will work
+
+behaviorcounts<-activityCounts_byindividual2
+
+
+fill_exposureWater <- function(x) { 
+  if(x=="Foraging soil") y <- "Other"
+  if(x=="Foraging water") y <- "WaterExposure"
+  if(x=="Foraging HO") y <- "Other"
+  if(x=="Foraging Hfood") y <- "Other"
+  if(x=="Grooming Preening") y <- "Other"
+  if(x=="Grooming Bathing") y <- "WaterExposure"
+  if(x=="Disturbance Response Flush") y <- "Other"
+  if(x=="Disturbance Response Retreat") y <- "Other"
+  if(x=="Drinking NA") y <- "WaterExposure"
+  if(x=="Flying NA") y <- "Other"
+  if(x=="Loafing Asleep/Resting") y <- "Other"
+  if(x=="Loafing Vigilant") y <- "Other"
+  if(x=="Walking on HO") y <- "Other"
+  if(x=="Walking on pavement") y <- "Other"
+  if(x=="Walking on soil/grass") y <- "Other"
+  return(y)
+}
+
+fill_HumanRisk <- function(x) { 
+  if(x=="Foraging soil") y <- "Other"
+  if(x=="Foraging water") y <- "Other"
+  if(x=="Foraging HO") y <- "HumanRisk"
+  if(x=="Foraging Hfood") y <- "HumanRisk"
+  if(x=="Grooming Preening") y <- "Other"
+  if(x=="Grooming Bathing") y <- "Other"
+  if(x=="Disturbance Response Flush") y <- "Other"
+  if(x=="Disturbance Response Retreat") y <- "Other"
+  if(x=="Drinking NA") y <- "Other"
+  if(x=="Flying NA") y <- "Other"
+  if(x=="Loafing Asleep/Resting") y <- "Other"
+  if(x=="Loafing Vigilant") y <- "Other"
+  if(x=="Walking on HO") y <- "HumanRisk"
+  if(x=="Walking on pavement") y <- "Other"
+  if(x=="Walking on soil/grass") y <- "Other"
+  return(y)
+}
+
+fill_Ectoparasite <- function(x) { 
+  if(x=="Foraging soil") y <- "Other"
+  if(x=="Foraging water") y <- "Other"
+  if(x=="Foraging HO") y <- "Other"
+  if(x=="Foraging Hfood") y <- "Other"
+  if(x=="Grooming Preening") y <- "Ecto"
+  if(x=="Grooming Bathing") y <- "Ecto"
+  if(x=="Disturbance Response Flush") y <- "Other"
+  if(x=="Disturbance Response Retreat") y <- "Other"
+  if(x=="Drinking NA") y <- "Other"
+  if(x=="Flying NA") y <- "Other"
+  if(x=="Loafing Asleep/Resting") y <- "Other"
+  if(x=="Loafing Vigilant") y <- "Other"
+  if(x=="Walking on HO") y <- "Other"
+  if(x=="Walking on pavement") y <- "Other"
+  if(x=="Walking on soil/grass") y <- "Other"
+  return(y)
+}
+
+fill_ForagePreen <- function(x) { 
+  if(x=="Foraging soil") y <- "Foraging"
+  if(x=="Foraging water") y <- "Foraging"
+  if(x=="Foraging HO") y <- "Foraging"
+  if(x=="Foraging Hfood") y <- "Foraging"
+  if(x=="Grooming Preening") y <- "Preening"
+  if(x=="Grooming Bathing") y <- "Preening"
+  if(x=="Disturbance Response Flush") y <- "Other"
+  if(x=="Disturbance Response Retreat") y <- "Other"
+  if(x=="Drinking NA") y <- "Other"
+  if(x=="Flying NA") y <- "Other"
+  if(x=="Loafing Asleep/Resting") y <- "Other"
+  if(x=="Loafing Vigilant") y <- "Other"
+  if(x=="Walking on HO") y <- "Other"
+  if(x=="Walking on pavement") y <- "Other"
+  if(x=="Walking on soil/grass") y <- "Other"
+  return(y)
+}
+
+fill_Vigilance <- function(x) { 
+  if(x=="Foraging soil") y <- "Other"
+  if(x=="Foraging water") y <- "Other"
+  if(x=="Foraging HO") y <- "Other"
+  if(x=="Foraging Hfood") y <- "Other"
+  if(x=="Grooming Preening") y <- "Other"
+  if(x=="Grooming Bathing") y <- "Other"
+  if(x=="Disturbance Response Flush") y <- "Other"
+  if(x=="Disturbance Response Retreat") y <- "Other"
+  if(x=="Drinking NA") y <- "Other"
+  if(x=="Flying NA") y <- "Other"
+  if(x=="Loafing Asleep/Resting") y <- "Other"
+  if(x=="Loafing Vigilant") y <- "Vigilant"
+  if(x=="Walking on HO") y <- "Other"
+  if(x=="Walking on pavement") y <- "Other"
+  if(x=="Walking on soil/grass") y <- "Other"
+  return(y)
+}
+
+fill_behav_simple <- function(x) { 
+  if(x=="Foraging soil") y <- "Foraging"
+  if(x=="Foraging water") y <- "Foraging"
+  if(x=="Foraging HO") y <- "Foraging"
+  if(x=="Foraging Hfood") y <- "Foraging"
+  if(x=="Grooming Preening") y <- "Grooming"
+  if(x=="Grooming Bathing") y <- "Grooming"
+  if(x=="Disturbance Response Flush") y <- "Other"
+  if(x=="Disturbance Response Retreat") y <- "Other"
+  if(x=="Drinking NA") y <- "Drinking"
+  if(x=="Flying NA") y <- "Other"
+  if(x=="Loafing Asleep/Resting") y <- "Resting"
+  if(x=="Loafing Vigilant") y <- "Vigilant"
+  if(x=="Walking on HO") y <- "Walking"
+  if(x=="Walking on pavement") y <- "Walking"
+  if(x=="Walking on soil/grass") y <- "Walking"
+  return(y)
+}
+
+
+behaviorcounts$WaterExposure <- sapply(behaviorcounts$Activity,fill_exposureWater) 
+behaviorcounts$HumanExposureRisk <- sapply(behaviorcounts$Activity,fill_HumanRisk) 
+behaviorcounts$EctoparasiteRisk <- sapply(behaviorcounts$Activity,fill_Ectoparasite) 
+behaviorcounts$ForagePreen <- sapply(behaviorcounts$Activity,fill_ForagePreen) 
+behaviorcounts$Vig <- sapply(behaviorcounts$Activity,fill_Vigilance) 
+behaviorcounts$simple <- sapply(behaviorcounts$Activity,fill_behav_simple) 
+
+#create new dataframes for each behavior type
+
+WaterExposure <- dplyr::select(behaviorcounts, focalID,activity_count,focalduration,WaterExposure) #select relevant columns
+WaterExposure <-WaterExposure  %>% 
+  group_by(focalID, WaterExposure) %>% 
+  summarise(activity_count = sum(activity_count, na.rm = TRUE))
+WaterExposure_wide<-spread(WaterExposure, key = WaterExposure, value = activity_count)
+WaterExposure_wide <- merge(predictors, WaterExposure_wide, by="focalID") #add in predictors 
+WaterExposure_wide$duration <- WaterExposure_wide$Other+WaterExposure_wide$WaterExposure
+WaterExposure_wide <- WaterExposure_wide[complete.cases(WaterExposure_wide), ]
+water.int<-WaterExposure_wide$WaterExposure%%1==0 #check to confirm counts are integers
+table(water.int)["FALSE"] #NA so no integers
+table(water.int)["TRUE"] 
+
+
+HumanExposureRisk <- dplyr::select(behaviorcounts, focalID,activity_count,focalduration,WaterExposure,HumanExposureRisk)
+HumanExposureRisk <-HumanExposureRisk  %>% 
+  group_by(focalID, HumanExposureRisk) %>% 
+  summarise(activity_count = sum(activity_count, na.rm = TRUE))
+HumanExposureRisk_wide<-spread(HumanExposureRisk, key = HumanExposureRisk, value = activity_count)
+HumanExposureRisk_wide <- merge(predictors, HumanExposureRisk_wide, by="focalID") #add in predictors 
+HumanExposureRisk_wide$duration <- HumanExposureRisk_wide$Other+HumanExposureRisk_wide$HumanRisk
+HumanExposureRisk_wide <- HumanExposureRisk_wide[complete.cases(HumanExposureRisk_wide), ]
+
+
+EctoparasiteRisk <- dplyr::select(behaviorcounts, focalID,activity_count,focalduration,WaterExposure,EctoparasiteRisk)
+EctoparasiteRisk <-EctoparasiteRisk  %>% 
+  group_by(focalID, EctoparasiteRisk) %>% 
+  summarise(activity_count = sum(activity_count, na.rm = TRUE))
+EctoparasiteRisk_wide<-spread(EctoparasiteRisk, key = EctoparasiteRisk, value = activity_count)
+EctoparasiteRisk_wide <- merge(predictors, EctoparasiteRisk_wide, by="focalID") #add in predictors 
+EctoparasiteRisk_wide$duration <- EctoparasiteRisk_wide$Other+EctoparasiteRisk_wide$Ecto
+EctoparasiteRisk_wide <- EctoparasiteRisk_wide[complete.cases(EctoparasiteRisk_wide), ]
+EctoparasiteRisk_wide$integer<-EctoparasiteRisk_wide$Ecto%%1==0 #check to confirm counts are integers
+table(EctoparasiteRisk_wide$integer)["FALSE"] #NA no integers
+
+ForagePreen<- dplyr::select(behaviorcounts, focalID,activity_count,focalduration,WaterExposure,ForagePreen)
+ForagePreen <-ForagePreen  %>% 
+  group_by(focalID, ForagePreen) %>% 
+  summarise(activity_count = sum(activity_count, na.rm = TRUE))
+ForagePreen_wide<-spread(ForagePreen, key = ForagePreen, value = activity_count)
+ForagePreen_wide <- merge(predictors, ForagePreen_wide, by="focalID") #add in predictors 
+ForagePreen_wide$duration <- ForagePreen_wide$Other+ForagePreen_wide$Foraging+ForagePreen_wide$Preening
+ForagePreen_wide <- ForagePreen_wide[complete.cases(ForagePreen_wide), ]
+forage.int<-ForagePreen_wide$Foraging%%1==0 #check to confirm counts are integers
+table(forage.int)["FALSE"] #NA so no integers
+ForagePreen_wide$integer<-ForagePreen_wide$Preening%%1==0 #check to confirm counts are integers
+table(ForagePreen_wide$integer)["FALSE"] #NA no integers
+
+Vig <- dplyr::select(behaviorcounts, focalID,activity_count,focalduration,Vig)
+Vig <-Vig  %>% 
+  group_by(focalID, Vig) %>% 
+  summarise(activity_count = sum(activity_count, na.rm = TRUE))
+Vig_wide<-spread(Vig, key = Vig, value = activity_count)
+Vig_wide <- merge(predictors, Vig_wide, by="focalID") #add in predictors 
+Vig_wide$duration <- Vig_wide$Other+Vig_wide$Vigilant
+Vig_wide <- Vig_wide[complete.cases(Vig_wide), ]
+Vig_wide$integer<-Vig_wide$Vigilant%%1==0 #check to confirm counts are integers
+table(Vig_wide$integer)["FALSE"] #NA no integers
+
+simplified_behaviors <- dplyr::select(behaviorcounts, focalID,activity_count,focalduration,simple)
+simplified_behaviors  <-simplified_behaviors   %>% 
+  group_by(focalID, simple) %>% 
+  summarise(activity_count = sum(activity_count, na.rm = TRUE))
+Simp_wide<-spread(simplified_behaviors, key = simple, value = activity_count)
+Simp_wide <- merge(predictors, Simp_wide, by="focalID") #add in predictors 
+Simp_wide$duration <- Simp_wide$Drinking+Simp_wide$Foraging+Simp_wide$Grooming+Simp_wide$Other+Simp_wide$Resting + Simp_wide$Vigilant+Simp_wide$Walking
+Simp_wide <- Simp_wide[complete.cases(Simp_wide), ]
+simp<-dplyr::select(Simp_wide, focalID,duration,Drinking,Foraging,Grooming,Resting,Vigilant,Walking,Other)
+
+simp2<- simp %>% 
+    rename("focalduration" = "duration")%>% 
+  pivot_longer(
+    cols = c(Drinking:Other),
+    names_to = "Activity",
+    values_to = "activity_count",
+    values_drop_na = TRUE
+  ) 
+
+```
+
+# Summary Statistics 
+
+How many focal follows lasted > 2 minutes? *important- when we add in predictors later, we lose data for 3 follows because they lack corresponding predictor data.
+```{r echo=FALSE}
+#data frame = behaviorcounts 
+
+sum1 <- Simp_wide
+sum1 <- dplyr::select(sum1,focalID)
+unique.IDs<-unique(sum1$focalID)
+length(unique.IDs)
+
+```
+
+What was the total amount of time spent observing ibis? (this only includes obs >2 minutes aka the ones used in the analysis)
+
+Total obs time in seconds:
+
+```{r echo=FALSE}
+sum2<-simp2
+sum2<- dplyr::select(sum2,focalID, focalduration) %>% unique() 
+
+sum(sum2$focalduration) #Total obs time in seconds
+
+```
+
+Total obs time in minutes:
+
+```{r echo=FALSE}
+sum(sum2$focalduration)/60 #Total obs time in minutes
+```
+
+Mean obs time:
+
+```{r echo=FALSE}
+mean(sum2$focalduration) #mean obs time in seconds
+```
+
+How many different behaviors were observed on average for each ibis during the observation?
+```{r echo=FALSE}
+#take behaviorcounts
+#activity_count>0
+#number of rows per focal ID
+sum3<- as.data.frame(subset(simp2, activity_count > 0))
+
+
+sum3.1 <- sum3 %>% group_by(focalID) %>% 
+  summarise(n_behaviors=n(),
+            .groups = 'drop')
+
+summary(sum3.1)
+
+```
+
+
+
+How many birds showed 2 or more behaviors? 
+```{r}
+nrow(sum3.1[sum3.1$n_behaviors >= 2,]) #all birds observed for at least 2 minutes did 2 or more behaviors 
+
+nrow(sum3.1[sum3.1$n_behaviors < 2,])
+```
+
+Most commonly observed behaviors observed? 
+
+How many birds foraged?
+```{r}
+sum4 <- simp2
+
+sum4f <- subset(sum4, Activity=="Foraging" & activity_count > 0)
+summary(sum4f)
+
+```
+
+How many birds groomed?
+```{r}
+sum4g <- subset(sum4, Activity=="Grooming" & activity_count > 0)
+summary(sum4g)
+
+```
+
+How many birds were vigilant?
+```{r}
+sum4v <- subset(sum4, Activity=="Vigilant" & activity_count > 0)
+summary(sum4v)
+
+```
+
+What behaviors did ibis spend the most time doing?
+
+```{r}
+sum5<-simp2
+
+sum5 <- sum5 %>% group_by(Activity) %>% summarise(sum(activity_count))
+sum5
+
+```
+Which behaviors were observed most frequently in ibis?
+
+```{r}
+sum6<-simp2
+
+sum6<- as.data.frame(subset(simp2, activity_count > 0))
+
+sum6.1 <- sum6 %>% group_by(Activity) %>% 
+  summarise(n_focals=n(),
+            .groups = 'drop')
+
+sum6.1
+
+```
+
+# Visualizations of predictors
+
+**Predictors:**
+
+* nearest flock size estimate
+* feeding events per hour
+* site? (not really interested in site-level differences per say but might help us understand if there are other inherent differences across sites that we aren't currently measuring) 
+
+**What is the distribution of provisioning frequency? What about average flock size?** 
+**Do we see any relationship between # feeding events and average flock size?**
+
+Note: Here I'm showing avg flock size *and* nearest flock size
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+###Visualize predictors
+predictorsDATE <- unique(dplyr::select(predictors,site,date,feedingperhour,avg_flock_size))
+
+ggplot(predictorsDATE, aes(x=feedingperhour)) + 
+ geom_histogram()+
+  labs(x="Feeding events per hour")
+
+ggplot(predictorsDATE, aes(x=avg_flock_size)) + 
+ geom_histogram()+
+  labs(x="Average Flock Size")
+
+ggplot(predictorsDATE, aes(x=feedingperhour, y=avg_flock_size)) + geom_point()+
+  labs(x="Feeding events per hour", y = "Average flock size") + theme_classic()
+
+ggplot(predictorsDATE, aes(x=feedingperhour, y=avg_flock_size, color=site, shape=site)) +
+  geom_point() + geom_line()+
+  labs(x="Feeding events per hour", y = "Average flock size") + theme_classic()
+
+ggplot(predictors, aes(x=feedingperhour, y=flocksize_nearest, color=site, shape=site)) +
+  geom_point() + geom_line()+
+  labs(x="Feeding events per hour", y = "Nearest flock size") + theme_classic()
+
+ggplot(predictorsDATE, aes(x=site, y=feedingperhour)) + 
+  geom_boxplot()+geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5,fill='#00CED1',color="black")+
+  labs(title="Plot of feeding by site",x="Site", y = "Feeding events per hour")
+
+ggplot(predictorsDATE, aes(x=site, y=avg_flock_size)) + 
+  geom_boxplot()+geom_dotplot(binaxis='y', stackdir='center', dotsize=0.4,fill='#00CED1',color="black")+
+  labs(title="Plot of average flock size by site",x="Site", y = "Daily Average Flock Size")
+
+ggplot(predictors, aes(x=site, y=flocksize_nearest)) + 
+  geom_boxplot()+geom_dotplot(binaxis='y', stackdir='center', dotsize=0.4,fill='#00CED1',color="black")+
+  labs(title="Plot of nearest flock size by site",x="Site", y = "Nearest Flock Size")
+
+```
+
+
+# Model visualizations and Model Selection
+
+### Water Exposure 
+
+This variable includes foraging in water, bathing, and drinking.
+
+**Main Q's:**
+
+Does flock size influence behaviors related to the exposure of waterborne pathogens?
+
+Does the amount of human provided food influence behaviors related to the exposure of waterborne pathogens?
+
+**Exploratory Visualizations**
+
+First, what does the distribution of water exposure look like? Plot water exposure by flock size, provisioning, and site to look for potential trends. (set to 'show nothing, run code' so rmd isn't super long)
+
+
+```{r exploratory visualizations, message=FALSE, warning=FALSE, include=FALSE}
+hist(WaterExposure_wide$WaterExposure) #highly 0 inflated 
+
+ggplot(WaterExposure_wide, aes(x=avg_flock_size, y=WaterExposure/duration)) +
+  geom_point() +theme_classic() +
+  labs(x="Avg Flock Size", y = "Prop. of time exposed to water") #no  clear trends
+
+ggplot(WaterExposure_wide, aes(x=flocksize_nearest, y=WaterExposure/duration)) +
+  geom_point() +theme_classic() +
+  labs(x="Nearest Flock Size", y = "Prop. of time exposed to water")#no  clear trends
+
+ggplot(WaterExposure_wide, aes(x=feedingperhour, y=WaterExposure/duration)) +
+  geom_point() +theme_classic() +
+  labs(x="Provisioning Frequency (# people feeding/hour)", y = "Prop. of time exposed to water")#no  clear trends
+
+ggplot(WaterExposure_wide, aes(x=site, y=WaterExposure/duration)) +
+  geom_boxplot() +theme_classic() #some potential site differences 
+
+```
+
+#### Models 
+
+Standardize predictor variables
+
+```{r include=FALSE}
+#library(mosaic)  # standardizing variables
+
+WaterExposure_wide <- 
+  WaterExposure_wide %>% 
+  mutate(avg_flock_size_s = scale(avg_flock_size))%>% 
+  mutate(flocksize_nearest_s = scale(flocksize_nearest))%>%
+  mutate(feedingperhour_s = scale(feedingperhour))
+```
+
+##### Model selection:
+
+Build a super model and then remove variables in a biologically relevant way to see how fit changes and compare AIC values. 
+
+```{r include=FALSE}
+#interecept only models with site, date, both, or neither as random effects: 
+
+wmod0 <-glmmTMB(WaterExposure~1+(1|date) + (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=WaterExposure_wide)
+
+wmod0.1 <-glmmTMB(WaterExposure~1+(1|date) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=WaterExposure_wide)
+
+
+wmod0.2 <-glmmTMB(WaterExposure~1+ (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=WaterExposure_wide)
+
+wmod0.3 <-glmmTMB(WaterExposure~1+ offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=WaterExposure_wide)
+
+#other models: 
+
+wmod1 <-glmmTMB(WaterExposure~flocksize_nearest_s+feedingperhour_s+(1|date) + (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=WaterExposure_wide)
+summary(wmod1) #date and site REs
+
+wmod2 <-glmmTMB(WaterExposure~flocksize_nearest_s+feedingperhour_s+(1|date) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=WaterExposure_wide)
+summary(wmod2) #just date RE
+
+wmod3 <-glmmTMB(WaterExposure~flocksize_nearest_s+feedingperhour_s+(1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=WaterExposure_wide)
+summary(wmod3) #just site RE
+
+wmod4 <-glmmTMB(WaterExposure~feedingperhour_s+flocksize_nearest_s*site+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=WaterExposure_wide)
+summary(wmod4) #site interaction
+
+wmod5 <-glmmTMB(WaterExposure~flocksize_nearest_s+feedingperhour_s+site+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=WaterExposure_wide)
+summary(wmod5) #site as fixed effect
+
+
+AICtab(wmod0,wmod0.1,wmod0.2,wmod0.3,wmod1,wmod2,wmod3,wmod4,wmod5) #most of these models perform well, the model with two REs doesn't perform as well (penalized for extra parameter?)
+
+AICtab(wmod0,wmod0.1,wmod0.2,wmod0.3,wmod1,wmod2,wmod3,wmod4) #exclude model with site as fixed effect
+
+#In conclusion, feeding per hour seems to matter in most models but most models aren't that different than the intercept only models. 
+
+#Random effect of date seems to perform better than that of site. 
+
+
+#what if I test just flock size, just provisioning, or just flocksize * site? 
+
+wmod6 <-glmmTMB(WaterExposure~flocksize_nearest_s+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=WaterExposure_wide)
+summary(wmod6) #just flock size
+
+wmod7 <-glmmTMB(WaterExposure~flocksize_nearest_s+(1|date)+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=WaterExposure_wide)
+summary(wmod7) #just flock size with site RE
+
+wmod8 <-glmmTMB(WaterExposure~flocksize_nearest_s*site+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=WaterExposure_wide)
+summary(wmod8) #just flock size * site interaction
+
+wmod9 <-glmmTMB(WaterExposure~feedingperhour_s+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=WaterExposure_wide)
+summary(wmod9)#just provisioning
+
+wmod10 <-glmmTMB(WaterExposure~feedingperhour_s+(1|date)+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=WaterExposure_wide)
+summary(wmod10)#just provisioning + site RE
+
+AICtab(wmod6,wmod7,wmod8,wmod9,wmod10)
+#out of these comparisons, wmod8, wmod9, wmod10 perform best which are all models with either provisioning or flock*site interaction
+
+##What if you compare entire suite of models to see if these last models differ from intercept-only models?
+AICtab(wmod0,wmod0.1,wmod0.2,wmod0.3,wmod1,wmod2,wmod3,wmod4,wmod5,wmod6,wmod7,wmod8,wmod9,wmod10) 
+
+#best performing models 
+#wmod8- flock size*site
+#wmod9- provisioning
+#wmod0.1- intercept date RE
+#wmod5- flock size, provisioning, site
+#wmod4- provisioning, flocksize*site 
+
+#final conclusion, using model selection approach, the intercept only models were within 2 AIC of best performing model suggesting that flock size and provisioning aren't the best predictors. 
+
+```
+
+##### Hypothesis testing approach:
+
+Is flock size important? Is provisioning important? 
+
+```{r include=FALSE}
+#build model that makes most sense biologically and look at p-values
+#these three models are all provisioning + flocksize
+#trying out different combos of REs to make sure I get same conclusions 
+
+summary(wmod1) #with date and site REs 
+summary(wmod2) #just date RE
+summary(wmod3) #just site RE
+
+#Using this approach, I find that provisioning decreases exposure to waterborne parasites 
+```
+
+
+
+#### Model diagnostics
+
+Not yet finished. Code is set to 'don't run' at the moment.  
+
+```{r eval=FALSE, include=FALSE}
+
+library(DHARMa)
+
+#watermod1
+simulationOutput1 <- simulateResiduals(fittedModel = watermod1, n = 1000) 
+
+
+plot(simulationOutput1)
+
+# QQ plot only
+plotQQunif(simulationOutput1) # left plot in plot.DHARMa()
+
+# residual plot only
+plotResiduals(simulationOutput1) # right plot in plot.DHARMa()
+
+#plot residuals against particular predictors
+#plotResiduals(simulationOutput1, YOURPREDICTOR)
+plotResiduals(simulationOutput1,WaterExposure_wide$feedingperhour)
+plotResiduals(simulationOutput1,WaterExposure_wide$avg_flock_size)
+plotResiduals(simulationOutput1,WaterExposure_wide$site)
+
+#Reading residual plots:
+# In a perfect model, we would expect the boxes to range homogeneously from 0.25-0.75; Deviations from this expectation will be highlighted in red (plot calculates test for uniformity per box and test for homogeneity of variance between boxes)
+
+```
+
+```{r eval=FALSE, include=FALSE}
+#test to see if the simulated dispersion is actually matching the observed dispersion
+testDispersion(simulationOutput1) #no significant differences
+
+testZeroInflation(simulationOutput1) #tests if there are more zeros in the data than expected from the simulations
+
+```
+
+### Ectoparasite removal 
+This variable includes preening and bathing. 
+
+ (set to 'show nothing, run code' so rmd isn't super long)
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+hist(EctoparasiteRisk_wide$Ecto) #highly 0 inflated 
+
+ggplot(EctoparasiteRisk_wide, aes(x=avg_flock_size, y=Ecto/duration)) +
+  geom_point() +theme_classic() #no  clear trends
+
+ggplot(EctoparasiteRisk_wide, aes(x=flocksize_nearest, y=Ecto/duration)) +
+  geom_point() +theme_classic() #no  clear trends
+
+ggplot(EctoparasiteRisk_wide, aes(x=site, y=Ecto/duration)) +
+  geom_boxplot() +theme_classic() #some potential site differences 
+
+```
+
+```{r eval=FALSE, include=FALSE}
+#models 
+ectoINTmod <- glmmTMB(Ecto~1+ offset(log(duration)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=EctoparasiteRisk_wide)
+summary(ectoINTmod)
+
+ectofeedingmod <- glmmTMB(Ecto~feedingperhour+ offset(log(duration)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=EctoparasiteRisk_wide)
+summary(ectofeedingmod)
+
+
+ectoflockmod <-glmmTMB(Ecto~avg_flock_size+ offset(log(duration)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=EctoparasiteRisk_wide)
+
+summary(ectoflockmod)
+
+ectoflockNmod <-glmmTMB(Ecto~flocksize_nearest+ offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=EctoparasiteRisk_wide)
+
+summary(ectoflockNmod)
+
+ectoflockNmod2 <-glmmTMB(Ecto~flocksize_nearest+ offset(log(duration)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=EctoparasiteRisk_wide)
+
+summary(ectoflockNmod2)
+
+
+ectositemod <-glmmTMB(Ecto~site+ offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=EctoparasiteRisk_wide)
+summary(ectositemod)
+
+ectositeREmod <-glmmTMB(Ecto~site+ offset(log(duration)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=EctoparasiteRisk_wide)
+
+summary(ectositeREmod)
+
+ectofeedflockmod <-glmmTMB(Ecto~avg_flock_size+feedingperhour+ offset(log(duration)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=EctoparasiteRisk_wide)
+summary(ectofeedflockmod)
+
+ectofeedflockmod2 <-glmmTMB(Ecto~flocksize_nearest+feedingperhour+ offset(log(duration)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=EctoparasiteRisk_wide)
+summary(ectofeedflockmod2)
+
+ectoflocksitemod <-glmmTMB(Ecto~avg_flock_size+avg_flock_size*site+ offset(log(duration)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=EctoparasiteRisk_wide)
+summary(ectoflocksitemod)
+
+ectoflocksitemod2 <-glmmTMB(Ecto~flocksize_nearest+flocksize_nearest*site+ offset(log(duration)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=EctoparasiteRisk_wide)
+summary(ectoflocksitemod2)
+
+ectofeedsitemod <-glmmTMB(Ecto~feedingperhour+feedingperhour*site+ offset(log(duration)) +(1|date),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=EctoparasiteRisk_wide)
+summary(ectofeedsitemod)#doesn't work
+
+
+AIC(ectoINTmod,ectofeedingmod,ectoflockmod,ectositemod, ectositeREmod,ectofeedflockmod,ectoflocksitemod,ectoflockNmod,ectoflockNmod2,ectoflocksitemod2)
+
+anova(ectoINTmod,ectofeedingmod,ectoflockmod,ectositemod, ectositeREmod,ectofeedflockmod,ectoflocksitemod,ectoflockNmod,ectoflockNmod2,ectoflocksitemod2) 
+
+AICtab(ectoINTmod,ectofeedingmod,ectoflockmod,ectositemod, ectositeREmod,ectofeedflockmod,ectoflocksitemod,ectoflockNmod,ectoflockNmod2,ectoflocksitemod2) 
+```
+
+
+### Foraging / Preening trade-off
+
+
+**Main Q's:**
+
+Does flock size, provisioning, both, or neither influence foraging time? What about preening time? 
+
+Literature suggests potential trade-offs between these behaviors. Would be interesting to see if we see differences in either of them and if so, are the effects opposite each other? 
+
+#### Models 
+
+Standardize predictor variables
+
+```{r}
+#library(mosaic)  # standardizing variables
+
+ForagePreen_wide <- 
+  ForagePreen_wide %>% 
+  mutate(avg_flock_size_s = scale(avg_flock_size))%>% 
+  mutate(flocksize_nearest_s = scale(flocksize_nearest))%>%
+  mutate(feedingperhour_s = scale(feedingperhour))
+```
+
+
+#### Foraging models: 
+
+Foraging includes foraging on soil, in water, on human objects, and consuming human provided food. 
+
+Note: Focal follows were **only** conducted when people were not actively feeding the birds so foraging means probing on the ground for food. The few instances of consuming human provided food are cases where ibis were foraging 'naturally' and happened upon scraps of anthropogenic food that was already on the ground. 
+
+**Exploratory Visualizations**
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+hist(ForagePreen_wide$Foraging) #highly 0 inflated
+
+ggplot(ForagePreen_wide, aes(x=avg_flock_size, y=Foraging/duration)) +
+  geom_point() +theme_classic() +
+  labs(x="Avg Flock Size", y = "Prop. of time foraging")
+
+ggplot(ForagePreen_wide, aes(x=flocksize_nearest, y=Foraging/duration)) +
+  geom_point() +theme_classic() +
+  labs(x="Nearest Flock Size", y = "Prop. of time foraging")
+
+ggplot(ForagePreen_wide, aes(x=feedingperhour, y=Foraging/duration)) +
+  geom_point() +theme_classic() +
+  labs(x="Provisioning Frequency (# people feeding/hour)", y = "Prop. of time foraging")
+
+ggplot(ForagePreen_wide, aes(x=site, y=Foraging/duration)) +
+  geom_boxplot() +theme_classic() +
+  labs(x="Site", y = "Prop. of time foraging")
+
+ggplot(ForagePreen_wide, aes(x=flocksize_nearest_s, y=Foraging/duration)) +
+  geom_point() +theme_classic() +
+  labs(x="Nearest Flock Size (standardized)", y = "Prop. of time foraging")
+
+ggplot(ForagePreen_wide, aes(x=feedingperhour_s, y=Foraging/duration)) +
+  geom_point() +theme_classic() +
+  labs(x="Provisioning Frequency (# people feeding/hour, standardized)", y = "Prop. of time foraging")
+
+ggplot(ForagePreen_wide, aes(x=feedingperhour_s, y=flocksize_nearest_s)) + geom_point() +  labs(x="Feeding events per hour (standardized)", y = "Nearest flock size (standardized)") + theme_classic()
+
+```
+
+##### Model selection:
+
+Build a super model and then remove variables in a biologically relevant way to see how fit changes and compare AIC values. (set to 'show nothing, run code' so rmd isn't super long)
+
+```{r include=FALSE}
+#intercept only models with site, date, both, or neither as random effects: 
+
+fmod0 <-glmmTMB(Foraging~1+(1|date) + (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+
+fmod0.1 <-glmmTMB(Foraging~1+(1|date) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+
+fmod0.2 <-glmmTMB(Foraging~1+ (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+
+fmod0.3 <-glmmTMB(Foraging~1+ offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+
+#other models: 
+
+fmod1 <-glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s+(1|date) + (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod1) #date and site REs
+
+fmod2 <-glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s+(1|date) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod2) #just date RE
+
+fmod3 <-glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s+(1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod3) #just site RE
+
+fmod4 <-glmmTMB(Foraging~feedingperhour_s+flocksize_nearest_s*site+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod4) #site interaction
+
+fmod5 <-glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s+site+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod5) #site as fixed effect
+
+
+AICtab(fmod0,fmod0.1,fmod0.2,fmod0.3,fmod1,fmod2,fmod3,fmod4,fmod5) #best models:
+#fmod4- provisioning + flocksize*site (date RE)
+#fmod3- provisioning + flock size (site RE)
+#fmod2- provisioning + flock size (date RE)
+
+#This suggests that both provisioning and flock size are important; best fit model includes site interaction with flock size
+
+#what if I test just flock size, just provisioning, or just flocksize * site? 
+
+fmod6 <-glmmTMB(Foraging~flocksize_nearest_s+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod6) #just flock size
+
+fmod7 <-glmmTMB(Foraging~flocksize_nearest_s+(1|date)+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod7) #just flock size with site RE
+
+fmod8 <-glmmTMB(Foraging~flocksize_nearest_s*site+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod8) #just flock size * site interaction
+
+fmod9 <-glmmTMB(Foraging~feedingperhour_s+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod9)#just provisioning
+
+fmod10 <-glmmTMB(Foraging~feedingperhour_s+(1|date)+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod10)#just provisioning + site RE
+
+AICtab(fmod6,fmod7,fmod8,fmod9,fmod10)
+#in this case, fmod8 performs best: flock size*site
+
+##What if you compare entire suite of models?
+AICtab(fmod0,fmod0.1,fmod0.2,fmod0.3,fmod1,fmod2,fmod3,fmod4,fmod5,fmod6,fmod7,fmod8,fmod9,fmod10)
+
+#best models:
+#fmod8: flocksize*site 
+#fmod4: provisioning + flocksize*site
+
+
+
+```
+
+###### Simple version:
+```{r}
+#Simple model selection:
+
+##No random effects: 
+
+#intercept only
+summary(fmod0.3)
+
+#provisioning
+fmod11 <-glmmTMB(Foraging~feedingperhour_s+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod11)
+
+#flock size
+fmod12 <-glmmTMB(Foraging~flocksize_nearest_s+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod12)
+
+#provisioning + flock size
+fmod13 <-glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod13)
+
+#provisioning x flock size 
+fmod14 <-glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod14)
+
+AICtab(fmod0.3,fmod11,fmod12,fmod13,fmod14)
+
+##Same models but with site as random effect 
+#intercept only
+summary(fmod0.2)
+
+#provisioning
+fmod15 <-glmmTMB(Foraging~feedingperhour_s+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod15)
+
+#flock size
+fmod16 <-glmmTMB(Foraging~flocksize_nearest_s+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod16)
+
+#provisioning + flock size
+fmod17 <-glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod17)
+
+#provisioning x flock size 
+fmod18 <-glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod18)
+
+AICtab(fmod0.2,fmod15,fmod16,fmod17,fmod18) #fmod17 and fmod18 = best fit
+
+```
+
+###### Pseudo R^{2} calculation 
+
+I think you could do this using the MuMIn package. It calculates conditional and marginal coefficient of determination for Generalized mixed-effect models. Marginal represents the variance explained by the fixed effects and conditional is interpreted as a variance explained by the entire model including both fixed and random effects. 
+
+```{r}
+library(MuMIn)
+r.squaredGLMM(fmod17,fmod0.2) #warning: effects of zero-inflation and dispersion model are ignored 
+```
+
+Ben Bolker also wrote a work-around for doing this directly. This can be accessed using the 'performance' add-on package (or using his crude code on github)
+
+Link to discussion for future reference: https://github.com/glmmTMB/glmmTMB/issues/169 
+
+```{r}
+##THESE METHODS SOMEHOW DON'T ACCOUNT FOR RANDOM EFFECTS
+performance::r2(fmod18)
+performance::r2_nakagawa(fmod17)
+
+performance::model_performance(fmod18)
+
+performance::model_performance(fmod12)
+
+performance::r2(fmod13)
+```
+
+
+
+
+##### Hypothesis testing approach:
+
+Is flock size important? Is provisioning important? (How important are they?)
+ (set to 'show nothing, run code' so rmd isn't super long)
+
+```{r include=FALSE}
+#build model that makes most sense biologically and look at p-values
+#these three models are all provisioning + flocksize
+#trying out different combos of REs to make sure I get same conclusions 
+
+summary(fmod1) #with date and site REs 
+summary(fmod2) #just date RE
+summary(fmod3) #just site RE
+
+#Using this approach, I find that both flock size and provisioning are important (p-vals < 0.05)
+
+#Estimates are negative so inverse relationships between provisioning and foraging; flock size and foraging
+```
+
+#### Model diagnostics
+
+Testing the fit of fmod17 and fmod18- the two best fitting models. 
+
+**First test the fit of fmod17**
+
+```{r fmod17 diagnostics, echo=FALSE, message=TRUE, warning=TRUE}
+
+library(DHARMa)
+
+summary(fmod17)
+
+simulationOutput2 <- simulateResiduals(fittedModel = fmod17, n = 1000) 
+
+
+plot(simulationOutput2)
+
+# QQ plot only
+#plotQQunif(simulationOutput2) # left plot in plot.DHARMa(); residuals look fine
+
+# residual plot only
+#plotResiduals(simulationOutput2) # right plot in plot.DHARMa(); looks pretty good to me
+
+#plot residuals against particular predictors
+#plotResiduals(simulationOutput2, YOURPREDICTOR)
+#predictors in fmod17 = flocksize_nearest_s and feedingperhour_s 
+plotResiduals(simulationOutput2,ForagePreen_wide$feedingperhour_s) #not great
+plotResiduals(simulationOutput2,ForagePreen_wide$flocksize_nearest_s) #not bad
+
+#other goodness of fit metrics for residuals:
+testDispersion(simulationOutput2) #no significant differences
+
+testZeroInflation(simulationOutput2) #tests if there are more zeros in the data than expected from the simulations; looks good
+```
+
+Residuals look fine. Plotting residuals against the two predictors suggests that there might be some issues for one of them. 
+
+**Now test fit for fmod18**
+
+```{r fmod18 diagnostics, echo=FALSE, message=TRUE, warning=TRUE}
+
+library(DHARMa)
+
+summary(fmod18)
+
+simulationOutput3 <- simulateResiduals(fittedModel = fmod18, n = 1000) 
+
+
+plot(simulationOutput3)
+
+# QQ plot only
+#plotQQunif(simulationOutput3) # left plot in plot.DHARMa(); residuals look fine
+
+# residual plot only
+#plotResiduals(simulationOutput3) # right plot in plot.DHARMa(); looks pretty good to me
+
+#plot residuals against particular predictors
+#plotResiduals(simulationOutput3, YOURPREDICTOR)
+#predictors in fmod17 = flocksize_nearest_s and feedingperhour_s 
+plotResiduals(simulationOutput3,ForagePreen_wide$feedingperhour_s) #not great
+plotResiduals(simulationOutput3,ForagePreen_wide$flocksize_nearest_s) #not as bad but still not great
+
+#other goodness of fit metrics for residuals:
+testDispersion(simulationOutput3) #no significant differences
+
+testZeroInflation(simulationOutput3) #tests if there are more zeros in the data than expected from the simulations; looks good
+```
+
+The residuals look pretty okay for this model too but there are more problems when I plot against specific predictors. 
+
+### Preening models: 
+
+ Preening includes preening or grooming. 
+ 
+ **Exploratory Visualizations**
+ 
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+hist(ForagePreen_wide$Preening) #highly 0 inflated
+
+ggplot(ForagePreen_wide, aes(x=avg_flock_size, y=Preening/duration)) +
+  geom_point() +theme_classic() +
+  labs(x="Avg Flock Size", y = "Prop. of time Preening")
+
+ggplot(ForagePreen_wide, aes(x=flocksize_nearest, y=Preening/duration)) +
+  geom_point() +theme_classic() +
+  labs(x="Nearest Flock Size", y = "Prop. of time Preening")
+
+ggplot(ForagePreen_wide, aes(x=feedingperhour, y=Preening/duration)) +
+  geom_point() +theme_classic() +
+  labs(x="Provisioning Frequency (# people feeding/hour)", y = "Prop. of time Preening")
+
+ggplot(ForagePreen_wide, aes(x=site, y=Preening/duration)) +
+  geom_boxplot() +theme_classic() +
+  labs(x="Site", y = "Prop. of time Preening")
+
+```
+
+##### Model selection:
+ 
+
+
+Build a super model and then remove variables in a biologically relevant way to see how fit changes and compare AIC values.  (set to 'show nothing, run code' so rmd isn't super long)
+
+```{r preening model selection, message=FALSE, warning=FALSE, include=FALSE}
+#intercept only models with site, date, both, or neither as random effects: 
+
+pmod0 <-glmmTMB(Preening~1+(1|date) + (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+
+pmod0.1 <-glmmTMB(Preening~1+(1|date) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+
+pmod0.2 <-glmmTMB(Preening~1+ (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+
+pmod0.3 <-glmmTMB(Preening~1+ offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+
+#other models: 
+
+pmod1 <-glmmTMB(Preening~flocksize_nearest_s+feedingperhour_s+(1|date) + (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod1) #date and site REs
+
+pmod2 <-glmmTMB(Preening~flocksize_nearest_s+feedingperhour_s+(1|date) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod2) #just date RE
+
+pmod3 <-glmmTMB(Preening~flocksize_nearest_s+feedingperhour_s+(1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod3) #just site RE
+
+pmod4 <-glmmTMB(Preening~feedingperhour_s+flocksize_nearest_s*site+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod4) #site interaction
+
+pmod5 <-glmmTMB(Preening~flocksize_nearest_s+feedingperhour_s+site+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod5) #site as fixed effect
+
+
+AICtab(pmod0,pmod0.1,pmod0.2,pmod0.3,pmod1,pmod2,pmod3,pmod4,pmod5) 
+
+#what if I test just flock size, just provisioning, or just flocksize * site? 
+
+pmod6 <-glmmTMB(Preening~flocksize_nearest_s+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod6) #just flock size
+
+pmod7 <-glmmTMB(Preening~flocksize_nearest_s+(1|date)+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod7) #just flock size with site RE
+
+pmod8 <-glmmTMB(Preening~flocksize_nearest_s*site+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod8) #just flock size * site interaction
+
+pmod9 <-glmmTMB(Preening~feedingperhour_s+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod9)#just provisioning
+
+pmod10 <-glmmTMB(Preening~feedingperhour_s+(1|date)+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod10)#just provisioning + site RE
+
+AICtab(pmod6,pmod7,pmod8,pmod9,pmod10)
+
+
+##What if you compare entire suite of models?
+AICtab(pmod0,pmod0.1,pmod0.2,pmod0.3,pmod1,pmod2,pmod3,pmod4,pmod5,pmod6,pmod7,pmod8,pmod9,pmod10)
+
+#best models:
+
+
+
+
+```
+
+###### Simple version:
+```{r}
+#Simple model selection:
+
+##No random effects: 
+
+#intercept only
+summary(pmod0.3)
+
+#provisioning
+pmod11 <-glmmTMB(Preening~feedingperhour_s+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod11)
+
+#flock size
+pmod12 <-glmmTMB(Preening~flocksize_nearest_s+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod12)
+
+#provisioning + flock size
+pmod13 <-glmmTMB(Preening~flocksize_nearest_s+feedingperhour_s+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod13)
+
+#provisioning x flock size 
+pmod14 <-glmmTMB(Preening~flocksize_nearest_s*feedingperhour_s+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod14)
+
+AICtab(pmod0.3,pmod11,pmod12,pmod13,pmod14)
+
+##Same models but with site as random effect 
+#intercept only
+summary(pmod0.2)
+
+#provisioning
+pmod15 <-glmmTMB(Preening~feedingperhour_s+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod15)
+
+#flock size
+pmod16 <-glmmTMB(Preening~flocksize_nearest_s+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod16)
+
+#provisioning + flock size
+pmod17 <-glmmTMB(Preening~flocksize_nearest_s+feedingperhour_s+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod17)
+
+#provisioning x flock size 
+pmod18 <-glmmTMB(Preening~flocksize_nearest_s*feedingperhour_s+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(pmod18)
+
+AICtab(pmod0.2,pmod15,pmod16,pmod17,pmod18)
+
+```
+
+The top performing models are within 2 AIC values of the intercept only null model. 
+
+##### Hypothesis testing approach:
+
+
+Is flock size important? Is provisioning important? (How important are they?)
+ (set to 'show nothing, run code' so rmd isn't super long)
+
+```{r preening hyp testing models, message=FALSE, warning=FALSE, include=FALSE}
+#build model that makes most sense biologically and look at p-values
+#these three models are all provisioning + flocksize
+#trying out different combos of REs to make sure I get same conclusions 
+
+summary(pmod1) #with date and site REs 
+summary(pmod2) #just date RE
+summary(pmod3) #just site RE
+
+#neither provisioning or flock size is significant 
+
+#Estimates are negative so inverse relationships between provisioning and Preening; flock size and Preening
+```
+
+#### Model diagnostics
+
+Not needed because the intercept only model is the best fitting model? 
+
+### Vigilance models: 
+```{r}
+#library(mosaic)  # standardizing variables
+
+Vig_wide <- 
+  Vig_wide %>% 
+  mutate(avg_flock_size_s = scale(avg_flock_size))%>% 
+  mutate(flocksize_nearest_s = scale(flocksize_nearest))%>%
+  mutate(feedingperhour_s = scale(feedingperhour))
+```
+ 
+ **Exploratory Visualizations**
+ 
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+hist(Vig_wide$Vigilant) #highly 0 inflated
+
+ggplot(Vig_wide, aes(x=avg_flock_size, y=Vigilant/duration)) +
+  geom_point() +theme_classic() +
+  labs(x="Avg Flock Size", y = "Prop. of time Vigilant")
+
+ggplot(Vig_wide, aes(x=flocksize_nearest, y=Vigilant/duration)) +
+  geom_point() +theme_classic() +
+  labs(x="Nearest Flock Size", y = "Prop. of time Vigilant")
+
+ggplot(Vig_wide, aes(x=feedingperhour, y=Vigilant/duration)) +
+  geom_point() +theme_classic() +
+  labs(x="Provisioning Frequency (# people feeding/hour)", y = "Prop. of time Vigilant")
+
+ggplot(Vig_wide, aes(x=site, y=Vigilant/duration)) +
+  geom_boxplot() +theme_classic() +
+  labs(x="Site", y = "Prop. of time Vigilant")
+
+```
+
+##### Model selection:
+ 
+
+
+Build a super model and then remove variables in a biologically relevant way to see how fit changes and compare AIC values.  (set to 'show nothing, run code' so rmd isn't super long)
+
+```{r Vigilant model selection, message=FALSE, warning=FALSE, include=FALSE}
+#intercept only models with site, date, both, or neither as random effects: 
+
+vmod0 <-glmmTMB(Vigilant~1+(1|date) + (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+
+vmod0.1 <-glmmTMB(Vigilant~1+(1|date) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+
+vmod0.2 <-glmmTMB(Vigilant~1+ (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+
+vmod0.3 <-glmmTMB(Vigilant~1+ offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+
+#other models: 
+
+vmod1 <-glmmTMB(Vigilant~flocksize_nearest_s+feedingperhour_s+(1|date) + (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod1) #date and site REs
+
+vmod2 <-glmmTMB(Vigilant~flocksize_nearest_s+feedingperhour_s+(1|date) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod2) #just date RE
+
+vmod3 <-glmmTMB(Vigilant~flocksize_nearest_s+feedingperhour_s+(1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod3) #just site RE
+
+vmod4 <-glmmTMB(Vigilant~feedingperhour_s+flocksize_nearest_s*site+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod4) #site interaction
+
+vmod5 <-glmmTMB(Vigilant~flocksize_nearest_s+feedingperhour_s+site+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod5) #site as fixed effect
+
+
+AICtab(vmod0,vmod0.1,vmod0.2,vmod0.3,vmod1,vmod2,vmod3,vmod4,vmod5) 
+
+#what if I test just flock size, just provisioning, or just flocksize * site? 
+
+vmod6 <-glmmTMB(Vigilant~flocksize_nearest_s+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod6) #just flock size
+
+vmod7 <-glmmTMB(Vigilant~flocksize_nearest_s+(1|date)+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod7) #just flock size with site RE
+
+vmod8 <-glmmTMB(Vigilant~flocksize_nearest_s*site+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod8) #just flock size * site interaction
+
+vmod9 <-glmmTMB(Vigilant~feedingperhour_s+(1|date)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod9)#just provisioning
+
+vmod10 <-glmmTMB(Vigilant~feedingperhour_s+(1|date)+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod10)#just provisioning + site RE
+
+AICtab(vmod6,vmod7,vmod8,vmod9,vmod10)
+
+
+##What if you compare entire suite of models?
+AICtab(vmod0,vmod0.1,vmod0.2,vmod0.3,vmod1,vmod2,vmod3,vmod4,vmod5,vmod6,vmod7,vmod8,vmod9,vmod10)
+
+#best models:
+
+
+
+
+```
+
+###### Simple version:
+```{r}
+#Simple model selection:
+
+##No random effects: 
+
+#intercept only
+summary(vmod0.3)
+
+#provisioning
+vmod11 <-glmmTMB(Vigilant~feedingperhour_s+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod11)
+
+#flock size
+vmod12 <-glmmTMB(Vigilant~flocksize_nearest_s+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod12)
+
+#provisioning + flock size
+vmod13 <-glmmTMB(Vigilant~flocksize_nearest_s+feedingperhour_s+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod13)
+
+#provisioning x flock size 
+vmod14 <-glmmTMB(Vigilant~flocksize_nearest_s*feedingperhour_s+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod14)
+
+AICtab(vmod0.3,vmod11,vmod12,vmod13,vmod14)
+
+##Same models but with site as random effect 
+#intercept only
+summary(vmod0.2)
+
+#provisioning
+vmod15 <-glmmTMB(Vigilant~feedingperhour_s+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod15)
+
+#flock size
+vmod16 <-glmmTMB(Vigilant~flocksize_nearest_s+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod16)
+
+#provisioning + flock size
+vmod17 <-glmmTMB(Vigilant~flocksize_nearest_s+feedingperhour_s+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod17)
+
+#provisioning x flock size 
+vmod18 <-glmmTMB(Vigilant~flocksize_nearest_s*feedingperhour_s+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
+summary(vmod18)
+
+AICtab(vmod0.2,vmod15,vmod16,vmod17,vmod18)
+
+```
+
+The top performing models are within 2 AIC values of the intercept only null model. 
+
+##### Hypothesis testing approach:
+
+
+Is flock size important? Is provisioning important? (How important are they?)
+ (set to 'show nothing, run code' so rmd isn't super long)
+
+```{r Vigilant hyp testing models, message=FALSE, warning=FALSE, include=FALSE}
+#build model that makes most sense biologically and look at p-values
+#these three models are all provisioning + flocksize
+#trying out different combos of REs to make sure I get same conclusions 
+
+summary(vmod1) #with date and site REs 
+summary(vmod2) #just date RE
+summary(vmod3) #just site RE
+
+
+```
+
+#### Model diagnostics
+
+Not needed because the intercept only model is the best fitting model? 
