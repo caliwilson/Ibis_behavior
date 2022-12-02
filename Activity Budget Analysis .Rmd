@@ -257,13 +257,13 @@ s.sum.site<- s %>%
   my_skim  %>%
   yank("numeric") #just numeric variables
 
-png("sum.all.png", height = 50*nrow(s.sum.all), width = 200*ncol(s.sum.all))
-grid.table(s.sum.all)
+#png("sum.all.png", height = 50*nrow(s.sum.all), width = 200*ncol(s.sum.all))
+#grid.table(s.sum.all)
 
 
-png("sum.bysite.png", height = 22*nrow(s.sum.site), width = 190*ncol(s.sum.site))
-grid.table(s.sum.site)
-dev.off()
+#png("sum.bysite.png", height = 22*nrow(s.sum.site), width = 190*ncol(s.sum.site))
+#grid.table(s.sum.site)
+#dev.off()
 
 s%>%
   dplyr::select_if(is.numeric) %>% hist.data.frame() #histograms 
