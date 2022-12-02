@@ -14,7 +14,6 @@ editor_options:
 
 Note- Observations are the average of 2-8 scans conducted at 10 minute intervals. 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
-setwd("~/Desktop/chapter 3 ibis data chapter/Spring 2021 Field Data Urban Natural Comparisons")
 library(readxl)
 library(tidyverse)
 library(magrittr)
@@ -26,7 +25,7 @@ library(glmmTMB)
 library(DHARMa)
 library(bbmle) 
 library(gridExtra)
-flockscans <- read_excel("Spring 2021 Field Data.xlsx", 
+flockscans <- read_excel("data/Spring 2021 Field Data.xlsx", 
                                      sheet = "Flock Scans")
 
 aggregated <- flockscans %>% group_by(site, date) %>% dplyr::summarise(count=n()) 
