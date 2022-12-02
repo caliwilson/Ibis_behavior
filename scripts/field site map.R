@@ -5,6 +5,12 @@ library(sf)
 library(rnaturalearth)
 library(rnaturalearthdata)
 library(readxl)
+library("maps")
+library("tools")
+library(lwgeom)
+library("ggspatial")
+library(osmdata)
+library(ggmap)
 
 world <- ne_countries(scale = "medium", returnclass = "sf")
 class(world)
@@ -35,14 +41,11 @@ ggplot(data = world) +
   coord_sf(xlim = c(-88, -78), ylim = c(24.5, 33), expand = FALSE)
 
 
-library("maps")
-
 #something breaks w this chunk:
 states <- st_as_sf(map("state", plot = FALSE, fill = TRUE))
 head(states)
 sf::sf_use_s2(FALSE) 
 states <- cbind(states, st_coordinates(st_centroid(states)))
-library("tools")
 states$ID <- toTitleCase(states$ID)
 head(states)
 
@@ -52,7 +55,6 @@ ggplot(data = world) +
   geom_text(data = states, aes(X, Y, label = ID), size = 5) +
   coord_sf(xlim = c(-88, -78), ylim = c(24.5, 33), expand = FALSE)
 
-library(lwgeom)
 counties <- st_as_sf(map("county", plot = FALSE, fill = TRUE))
 counties$pbc<-ifelse(counties$ID=='florida,palm beach',"yes","no")
 counties <- subset(counties, grepl("florida", counties$ID))
@@ -65,9 +67,6 @@ ggplot(data = world) +
   coord_sf(xlim = c(-88, -78), ylim = c(24.5, 33), expand = FALSE)
 
 
-
-
-library("ggspatial")
 ggplot(data = world) +
   geom_sf(fill = "antiquewhite1") +
   geom_sf(data = counties,aes(color = pbc)) +
@@ -124,16 +123,12 @@ ggplot(data = world) +
                                         size = 0.5), panel.background = element_rect(fill = "aliceblue"))+ theme(legend.position = "none") 
 
 #trying to make a zoomed in map:
-library(osmdata)
-
 pbc_bb <- getbb(place_name = "Palm Beach County, Florida")
 pbc_bb
 
 
 pbc_bb %>%
   opq()
-
-library(ggmap)
 
 pbc_map <- get_map(pbc_bb, maptype = "roadmap")
 
