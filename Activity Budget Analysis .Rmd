@@ -1691,120 +1691,16 @@ ggplot(ForagePreen_wide, aes(x=site, y=Preening/duration)) +
 
 ##### Model selection:
  
-
-
-Build a super model and then remove variables in a biologically relevant way to see how fit changes and compare AIC values.  (set to 'show nothing, run code' so rmd isn't super long)
-
-```{r preening model selection, message=FALSE, warning=FALSE, include=FALSE}
-#intercept only models with site, date, both, or neither as random effects: 
-
-pmod0 <-glmmTMB(Preening~1+(1|date) + (1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-
-pmod0.1 <-glmmTMB(Preening~1+(1|date) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-
-pmod0.2 <-glmmTMB(Preening~1+ (1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-
-pmod0.3 <-glmmTMB(Preening~1+ offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-
-#other models: 
-
-pmod1 <-glmmTMB(Preening~flocksize_nearest_s+feedingperhour_s+(1|date) + (1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(pmod1) #date and site REs
-
-pmod2 <-glmmTMB(Preening~flocksize_nearest_s+feedingperhour_s+(1|date) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(pmod2) #just date RE
-
-pmod3 <-glmmTMB(Preening~flocksize_nearest_s+feedingperhour_s+(1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(pmod3) #just site RE
-
-pmod4 <-glmmTMB(Preening~feedingperhour_s+flocksize_nearest_s*site+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(pmod4) #site interaction
-
-pmod5 <-glmmTMB(Preening~flocksize_nearest_s+feedingperhour_s+site+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(pmod5) #site as fixed effect
-
-
-AICtab(pmod0,pmod0.1,pmod0.2,pmod0.3,pmod1,pmod2,pmod3,pmod4,pmod5) 
-
-#what if I test just flock size, just provisioning, or just flocksize * site? 
-
-pmod6 <-glmmTMB(Preening~flocksize_nearest_s+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(pmod6) #just flock size
-
-pmod7 <-glmmTMB(Preening~flocksize_nearest_s+(1|date)+(1|site)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(pmod7) #just flock size with site RE
-
-pmod8 <-glmmTMB(Preening~flocksize_nearest_s*site+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(pmod8) #just flock size * site interaction
-
-pmod9 <-glmmTMB(Preening~feedingperhour_s+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(pmod9)#just provisioning
-
-pmod10 <-glmmTMB(Preening~feedingperhour_s+(1|date)+(1|site)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(pmod10)#just provisioning + site RE
-
-AICtab(pmod6,pmod7,pmod8,pmod9,pmod10)
-
-
-##What if you compare entire suite of models?
-AICtab(pmod0,pmod0.1,pmod0.2,pmod0.3,pmod1,pmod2,pmod3,pmod4,pmod5,pmod6,pmod7,pmod8,pmod9,pmod10)
-
-#best models:
-
-
-
-
-```
-
-###### Simple version:
 ```{r}
-#Simple model selection:
+
 
 ##No random effects: 
 
 #intercept only
+pmod0.3 <-glmmTMB(Preening~1+ offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
 summary(pmod0.3)
 
 #provisioning
@@ -1839,6 +1735,10 @@ AICtab(pmod0.3,pmod11,pmod12,pmod13,pmod14)
 
 ##Same models but with site as random effect 
 #intercept only
+pmod0.2 <-glmmTMB(Preening~1+ (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
 summary(pmod0.2)
 
 #provisioning
@@ -1874,26 +1774,6 @@ AICtab(pmod0.2,pmod15,pmod16,pmod17,pmod18)
 ```
 
 The top performing models are within 2 AIC values of the intercept only null model. 
-
-##### Hypothesis testing approach:
-
-
-Is flock size important? Is provisioning important? (How important are they?)
- (set to 'show nothing, run code' so rmd isn't super long)
-
-```{r preening hyp testing models, message=FALSE, warning=FALSE, include=FALSE}
-#build model that makes most sense biologically and look at p-values
-#these three models are all provisioning + flocksize
-#trying out different combos of REs to make sure I get same conclusions 
-
-summary(pmod1) #with date and site REs 
-summary(pmod2) #just date RE
-summary(pmod3) #just site RE
-
-#neither provisioning or flock size is significant 
-
-#Estimates are negative so inverse relationships between provisioning and Preening; flock size and Preening
-```
 
 #### Model diagnostics
 
@@ -1935,120 +1815,15 @@ ggplot(Vig_wide, aes(x=site, y=Vigilant/duration)) +
 
 ##### Model selection:
  
-
-
-Build a super model and then remove variables in a biologically relevant way to see how fit changes and compare AIC values.  (set to 'show nothing, run code' so rmd isn't super long)
-
-```{r Vigilant model selection, message=FALSE, warning=FALSE, include=FALSE}
-#intercept only models with site, date, both, or neither as random effects: 
-
-vmod0 <-glmmTMB(Vigilant~1+(1|date) + (1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=Vig_wide)
-
-vmod0.1 <-glmmTMB(Vigilant~1+(1|date) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=Vig_wide)
-
-vmod0.2 <-glmmTMB(Vigilant~1+ (1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=Vig_wide)
-
-vmod0.3 <-glmmTMB(Vigilant~1+ offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=Vig_wide)
-
-#other models: 
-
-vmod1 <-glmmTMB(Vigilant~flocksize_nearest_s+feedingperhour_s+(1|date) + (1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=Vig_wide)
-summary(vmod1) #date and site REs
-
-vmod2 <-glmmTMB(Vigilant~flocksize_nearest_s+feedingperhour_s+(1|date) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=Vig_wide)
-summary(vmod2) #just date RE
-
-vmod3 <-glmmTMB(Vigilant~flocksize_nearest_s+feedingperhour_s+(1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=Vig_wide)
-summary(vmod3) #just site RE
-
-vmod4 <-glmmTMB(Vigilant~feedingperhour_s+flocksize_nearest_s*site+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=Vig_wide)
-summary(vmod4) #site interaction
-
-vmod5 <-glmmTMB(Vigilant~flocksize_nearest_s+feedingperhour_s+site+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=Vig_wide)
-summary(vmod5) #site as fixed effect
-
-
-AICtab(vmod0,vmod0.1,vmod0.2,vmod0.3,vmod1,vmod2,vmod3,vmod4,vmod5) 
-
-#what if I test just flock size, just provisioning, or just flocksize * site? 
-
-vmod6 <-glmmTMB(Vigilant~flocksize_nearest_s+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=Vig_wide)
-summary(vmod6) #just flock size
-
-vmod7 <-glmmTMB(Vigilant~flocksize_nearest_s+(1|date)+(1|site)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=Vig_wide)
-summary(vmod7) #just flock size with site RE
-
-vmod8 <-glmmTMB(Vigilant~flocksize_nearest_s*site+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=Vig_wide)
-summary(vmod8) #just flock size * site interaction
-
-vmod9 <-glmmTMB(Vigilant~feedingperhour_s+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=Vig_wide)
-summary(vmod9)#just provisioning
-
-vmod10 <-glmmTMB(Vigilant~feedingperhour_s+(1|date)+(1|site)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=Vig_wide)
-summary(vmod10)#just provisioning + site RE
-
-AICtab(vmod6,vmod7,vmod8,vmod9,vmod10)
-
-
-##What if you compare entire suite of models?
-AICtab(vmod0,vmod0.1,vmod0.2,vmod0.3,vmod1,vmod2,vmod3,vmod4,vmod5,vmod6,vmod7,vmod8,vmod9,vmod10)
-
-#best models:
-
-
-
-
-```
-
-###### Simple version:
 ```{r}
-#Simple model selection:
 
 ##No random effects: 
 
 #intercept only
+vmod0.3 <-glmmTMB(Vigilant~1+ offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
 summary(vmod0.3)
 
 #provisioning
@@ -2083,6 +1858,10 @@ AICtab(vmod0.3,vmod11,vmod12,vmod13,vmod14)
 
 ##Same models but with site as random effect 
 #intercept only
+vmod0.2 <-glmmTMB(Vigilant~1+ (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=Vig_wide)
 summary(vmod0.2)
 
 #provisioning
