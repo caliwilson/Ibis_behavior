@@ -1271,12 +1271,14 @@ nbm1 = glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s  +offset(log(durati
 
 zipm1 = glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s  +offset(log(duration)), zi=~flocksize_nearest_s*feedingperhour_s, ForagePreen_wide, family=poisson)
 
+zipm1.int = glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s  +offset(log(duration)), zi=~1, ForagePreen_wide, family=poisson)
+
 zinbm1 = glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s +offset(log(duration)), zi=~flocksize_nearest_s*feedingperhour_s, ForagePreen_wide, family=nbinom2)
 
 zinbm1.int = glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s +offset(log(duration)), zi=~1, ForagePreen_wide, family=nbinom2) #intercept only zero inflated term
 
 
-AICtab(pm1,nbm1,zipm1,zinbm1,zinbm1.int) #zinbm1.int is best fit but does this make sense? can you have an intercept only term in the zi part of the model? 
+AICtab(pm1,nbm1,zipm1,zipm1.int,zinbm1,zinbm1.int) #zinbm1.int is best fit but does this make sense? can you have an intercept only term in the zi part of the model? 
 
 ```
 
@@ -1662,9 +1664,9 @@ ggsave("foragingmodeloutput.png")
 ```
 
 
-### Preening models: 
+### Grooming models: 
 
- Preening includes preening or grooming. 
+ Preening includes preening or grooming (bathing). 
  
  **Exploratory Visualizations**
  
@@ -1690,6 +1692,24 @@ ggplot(ForagePreen_wide, aes(x=site, y=Preening/duration)) +
 ```
 
 ##### Model selection:
+
+Count data: Does poisson or negative binomial fit better? Build global model (two predictors + interactions) and compare AIC. 
+
+```{r}
+pm1_preen = glmmTMB(Preening~flocksize_nearest_s*feedingperhour_s + offset(log(duration)), ForagePreen_wide, family=poisson)
+
+nbm1_preen = glmmTMB(Preening~flocksize_nearest_s*feedingperhour_s  +offset(log(duration)), ForagePreen_wide, family=nbinom2)
+
+zipm1_preen = glmmTMB(Preening~flocksize_nearest_s*feedingperhour_s  +offset(log(duration)), zi=~1, ForagePreen_wide, family=poisson)
+
+zinbm1_preen = glmmTMB(Preening~flocksize_nearest_s*feedingperhour_s +offset(log(duration)), zi=~1, ForagePreen_wide, family=nbinom2)
+
+
+AICtab(pm1_preen,nbm1_preen,zipm1_preen,zinbm1_preen) #zero inflated is best here, continue with this model
+
+```
+
+Zero inflated negative binomial model is the best one so continue with that model structure. 
  
 ```{r}
 
@@ -1814,6 +1834,24 @@ ggplot(Vig_wide, aes(x=site, y=Vigilant/duration)) +
 ```
 
 ##### Model selection:
+
+Count data: Does poisson or negative binomial fit better? Build global model (two predictors + interactions) and compare AIC. 
+
+```{r}
+pm1_vig = glmmTMB(Vigilant~flocksize_nearest_s*feedingperhour_s + offset(log(duration)), Vig_wide, family=poisson)
+
+nbm1_vig = glmmTMB(Vigilant~flocksize_nearest_s*feedingperhour_s  +offset(log(duration)), Vig_wide, family=nbinom2)
+
+zipm1_vig = glmmTMB(Vigilant~flocksize_nearest_s*feedingperhour_s  +offset(log(duration)), zi=~1, Vig_wide, family=poisson)
+
+zinbm1_vig = glmmTMB(Vigilant~flocksize_nearest_s*feedingperhour_s +offset(log(duration)), zi=~1, Vig_wide, family=nbinom2)
+
+
+AICtab(pm1_vig,nbm1_vig,zipm1_vig,zinbm1_vig) #zero inflated is best here, continue with this model
+
+```
+
+Zero inflated negative binomial model is the best one so continue with that model structure. 
  
 ```{r}
 
@@ -1897,24 +1935,6 @@ AICtab(vmod0.2,vmod15,vmod16,vmod17,vmod18)
 ```
 
 The top performing models are within 2 AIC values of the intercept only null model. 
-
-##### Hypothesis testing approach:
-
-
-Is flock size important? Is provisioning important? (How important are they?)
- (set to 'show nothing, run code' so rmd isn't super long)
-
-```{r Vigilant hyp testing models, message=FALSE, warning=FALSE, include=FALSE}
-#build model that makes most sense biologically and look at p-values
-#these three models are all provisioning + flocksize
-#trying out different combos of REs to make sure I get same conclusions 
-
-summary(vmod1) #with date and site REs 
-summary(vmod2) #just date RE
-summary(vmod3) #just site RE
-
-
-```
 
 #### Model diagnostics
 
