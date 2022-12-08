@@ -1208,8 +1208,6 @@ Does flock size, provisioning, both, or neither influence foraging time? What ab
 
 Literature suggests potential trade-offs between these behaviors. Would be interesting to see if we see differences in either of them and if so, are the effects opposite each other? 
 
-#### Models 
-
 Standardize predictor variables
 
 ```{r}
@@ -1264,124 +1262,135 @@ ggplot(ForagePreen_wide, aes(x=feedingperhour_s, y=flocksize_nearest_s)) + geom_
 
 ##### Model selection:
 
-Build a super model and then remove variables in a biologically relevant way to see how fit changes and compare AIC values. (set to 'show nothing, run code' so rmd isn't super long)
+Count data: Does poisson or negative binomial fit better? Build global model (two predictors + interactions) and compare AIC. 
 
-```{r include=FALSE}
-#intercept only models with site, date, both, or neither as random effects: 
+```{r}
+pm1 = glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s + offset(log(duration)), ForagePreen_wide, family=poisson)
 
-fmod0 <-glmmTMB(Foraging~1+(1|date) + (1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
+nbm1 = glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s  +offset(log(duration)), ForagePreen_wide, family=nbinom2)
 
-fmod0.1 <-glmmTMB(Foraging~1+(1|date) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
+zipm1 = glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s  +offset(log(duration)), zi=~flocksize_nearest_s*feedingperhour_s, ForagePreen_wide, family=poisson)
 
-fmod0.2 <-glmmTMB(Foraging~1+ (1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
+zinbm1 = glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s +offset(log(duration)), zi=~flocksize_nearest_s*feedingperhour_s, ForagePreen_wide, family=nbinom2)
 
+zinbm1.int = glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s +offset(log(duration)), zi=~1, ForagePreen_wide, family=nbinom2) #intercept only zero inflated term
+
+
+AICtab(pm1,nbm1,zipm1,zinbm1,zinbm1.int) #zinbm1.int is best fit but does this make sense? can you have an intercept only term in the zi part of the model? 
+
+```
+
+Is this the case for other candidate models (not just the global model)?
+
+
+```{r}
+
+#just flock size
+pm2 = glmmTMB(Foraging~flocksize_nearest_s + offset(log(duration)), ForagePreen_wide, family=poisson)
+
+nbm2 = glmmTMB(Foraging~flocksize_nearest_s + offset(log(duration)), ForagePreen_wide, family=nbinom2)
+
+zipm2 = glmmTMB(Foraging~flocksize_nearest_s + offset(log(duration)), zi=~flocksize_nearest_s, ForagePreen_wide, family=poisson)
+
+zinbm2 = glmmTMB(Foraging~flocksize_nearest_s + offset(log(duration)), zi=~flocksize_nearest_s, ForagePreen_wide, family=nbinom2)
+
+zinbm2.int = glmmTMB(Foraging~flocksize_nearest_s + offset(log(duration)), zi=~1, ForagePreen_wide, family=nbinom2)
+
+AICtab(pm2,nbm2,zipm2,zinbm2,zinbm2.int) #the two zinbm models are the best 
+
+#just provisioning
+pm3 = glmmTMB(Foraging~feedingperhour_s + offset(log(duration)), ForagePreen_wide, family=poisson)
+
+nbm3 = glmmTMB(Foraging~feedingperhour_s + offset(log(duration)), ForagePreen_wide, family=nbinom2)
+
+zipm3 = glmmTMB(Foraging~feedingperhour_s + offset(log(duration)), zi=~feedingperhour_s, ForagePreen_wide, family=poisson)
+
+zinbm3 = glmmTMB(Foraging~feedingperhour_s + offset(log(duration)), zi=~feedingperhour_s, ForagePreen_wide, family=nbinom2)
+
+zinbm3.int = glmmTMB(Foraging~feedingperhour_s + offset(log(duration)), zi=~1, ForagePreen_wide, family=nbinom2)
+
+AICtab(pm3,nbm3,zipm3,zinbm3,zinbm3.int) #the two zinbm models are the best
+
+#Flock size and provisioning 
+pm4 = glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s + offset(log(duration)), ForagePreen_wide, family=poisson)
+
+nbm4 = glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s  +offset(log(duration)), ForagePreen_wide, family=nbinom2)
+
+zipm4 = glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s  +offset(log(duration)), zi=~flocksize_nearest_s+feedingperhour_s, ForagePreen_wide, family=poisson)
+
+zinbm4 = glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s +offset(log(duration)), zi=~flocksize_nearest_s+feedingperhour_s, ForagePreen_wide, family=nbinom2)
+
+zinbm4.int = glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s +offset(log(duration)), zi=~1, ForagePreen_wide, family=nbinom2) #intercept only zero inflated term
+
+AICtab(pm4,nbm4,zipm4,zinbm4,zinbm4.int) #the two zinbm models are the best 
+
+```
+
+
+I can also double check dispersion and zero inflation in my models using Dharma: 
+
+```{r}
+
+#check fit of poisson model: 
+simulationOutput.pm1 <- simulateResiduals(fittedModel = pm1)
+plot(simulationOutput.pm1)
+
+#overdispersed or underdispersed?
+testDispersion(simulationOutput.pm1,alternative = "greater") #test for overdispersion 
+testDispersion(simulationOutput.pm1,alternative = "less") #test for underdispersion 
+#poisson model is overdispersed 
+
+#zero inflated?
+testZeroInflation(simulationOutput.pm1) #yes zero inflated 
+
+#Now let's look at fit of neg binom model to handle zero inflation:
+
+simulationOutput.nbm <- simulateResiduals(fittedModel = nbm1)
+plot(simulationOutput.nbm)
+
+#overdispersed or underdispersed?
+testDispersion(simulationOutput.nbm,alternative = "greater") #test for overdispersion 
+testDispersion(simulationOutput.nbm,alternative = "less") #test for underdispersion 
+#now it's underdispersed
+
+testZeroInflation(simulationOutput.nbm) #still slightly zero inflated 
+
+#how does a neg binom zero inflated model look? compare zinbm1 and zinbm1.int
+simulationOutput.zinbm1 <- simulateResiduals(fittedModel = zinbm1)
+plot(simulationOutput.zinbm1)
+
+simulationOutput.zinbm1.int <- simulateResiduals(fittedModel = zinbm1.int)
+plot(simulationOutput.zinbm1.int)
+
+testDispersion(simulationOutput.zinbm1,alternative = "greater") #test for overdispersion 
+testDispersion(simulationOutput.zinbm1,alternative = "less") #test for underdispersion 
+
+testDispersion(simulationOutput.zinbm1.int,alternative = "greater") #test for overdispersion 
+testDispersion(simulationOutput.zinbm1.int,alternative = "less") #test for underdispersion 
+
+#disperson is fine for both of these, what about zero-inflation?
+testZeroInflation(simulationOutput.zinbm1)
+testZeroInflation(simulationOutput.zinbm1.int)
+
+#both are fine
+
+```
+
+These results suggest that the zero inflated models make the most sense (they fix the dispersion and zero inflation issues). ZI models with zi=1 and zi= conditional fixed effects are both sufficient in fixing these issues. 
+
+
+For these data, I would think most zeros are false zeros that are due to experimental design AKA 0 foraging does not mean the bird never forages but rather it was not observed for long enough to observe foraging. I don't think these false zeros could be explained by my predictors. Because of this, I think I should apply a single zero inflation parameter to my entire model (ziformula~1). 
+
+Now I will move forward with zero inflated negative binomial models with a single zero inflated term applied to all models. 
+
+First build models without any random effects: 
+
+```{r}
+#intercept only
 fmod0.3 <-glmmTMB(Foraging~1+ offset(log(duration)),
                     family=nbinom2,
                     ziformula=~1,
                     data=ForagePreen_wide)
-
-#other models: 
-
-fmod1 <-glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s+(1|date) + (1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(fmod1) #date and site REs
-
-fmod2 <-glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s+(1|date) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(fmod2) #just date RE
-
-fmod3 <-glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s+(1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(fmod3) #just site RE
-
-fmod4 <-glmmTMB(Foraging~feedingperhour_s+flocksize_nearest_s*site+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(fmod4) #site interaction
-
-fmod5 <-glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s+site+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(fmod5) #site as fixed effect
-
-
-AICtab(fmod0,fmod0.1,fmod0.2,fmod0.3,fmod1,fmod2,fmod3,fmod4,fmod5) #best models:
-#fmod4- provisioning + flocksize*site (date RE)
-#fmod3- provisioning + flock size (site RE)
-#fmod2- provisioning + flock size (date RE)
-
-#This suggests that both provisioning and flock size are important; best fit model includes site interaction with flock size
-
-#what if I test just flock size, just provisioning, or just flocksize * site? 
-
-fmod6 <-glmmTMB(Foraging~flocksize_nearest_s+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(fmod6) #just flock size
-
-fmod7 <-glmmTMB(Foraging~flocksize_nearest_s+(1|date)+(1|site)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(fmod7) #just flock size with site RE
-
-fmod8 <-glmmTMB(Foraging~flocksize_nearest_s*site+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(fmod8) #just flock size * site interaction
-
-fmod9 <-glmmTMB(Foraging~feedingperhour_s+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(fmod9)#just provisioning
-
-fmod10 <-glmmTMB(Foraging~feedingperhour_s+(1|date)+(1|site)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=ForagePreen_wide)
-summary(fmod10)#just provisioning + site RE
-
-AICtab(fmod6,fmod7,fmod8,fmod9,fmod10)
-#in this case, fmod8 performs best: flock size*site
-
-##What if you compare entire suite of models?
-AICtab(fmod0,fmod0.1,fmod0.2,fmod0.3,fmod1,fmod2,fmod3,fmod4,fmod5,fmod6,fmod7,fmod8,fmod9,fmod10)
-
-#best models:
-#fmod8: flocksize*site 
-#fmod4: provisioning + flocksize*site
-
-
-
-```
-
-###### Simple version:
-```{r}
-#Simple model selection:
-
-##No random effects: 
-
-#intercept only
 summary(fmod0.3)
 
 #provisioning
@@ -1405,6 +1414,12 @@ fmod13 <-glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s+offset(log(durati
                     data=ForagePreen_wide)
 summary(fmod13)
 
+fmod13.1 <-glmmTMB(Foraging~flocksize_nearest_s+feedingperhour_s+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod13.1)
+
 #provisioning x flock size 
 fmod14 <-glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s+offset(log(duration)),
                     family=nbinom2,
@@ -1413,9 +1428,19 @@ fmod14 <-glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s+offset(log(durati
 summary(fmod14)
 
 AICtab(fmod0.3,fmod11,fmod12,fmod13,fmod14)
+```
 
-##Same models but with site as random effect 
+fmod13 (flock size and feeding) and fmod14 (flock size * feeding) are best fitting models. 
+
+Now build the same models but include site as a random effect and see if same models are best fitting. 
+
+```{r}
+
 #intercept only
+fmod0.2 <-glmmTMB(Foraging~1+ (1|site) + offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
 summary(fmod0.2)
 
 #provisioning
@@ -1450,54 +1475,12 @@ AICtab(fmod0.2,fmod15,fmod16,fmod17,fmod18) #fmod17 and fmod18 = best fit
 
 ```
 
-###### Pseudo R^{2} calculation 
+Models with flock size and feeding or flock size * feeding are still the best fitting models (fmod17 and fmod18 here).
 
-I think you could do this using the MuMIn package. It calculates conditional and marginal coefficient of determination for Generalized mixed-effect models. Marginal represents the variance explained by the fixed effects and conditional is interpreted as a variance explained by the entire model including both fixed and random effects. 
-
-```{r}
-library(MuMIn)
-r.squaredGLMM(fmod17,fmod0.2) #warning: effects of zero-inflation and dispersion model are ignored 
-```
-
-Ben Bolker also wrote a work-around for doing this directly. This can be accessed using the 'performance' add-on package (or using his crude code on github)
-
-Link to discussion for future reference: https://github.com/glmmTMB/glmmTMB/issues/169 
-
-```{r}
-##THESE METHODS SOMEHOW DON'T ACCOUNT FOR RANDOM EFFECTS
-performance::r2(fmod18)
-performance::r2_nakagawa(fmod17)
-
-performance::model_performance(fmod18)
-
-performance::model_performance(fmod12)
-
-performance::r2(fmod13)
-```
-
-
-
-
-##### Hypothesis testing approach:
-
-Is flock size important? Is provisioning important? (How important are they?)
- (set to 'show nothing, run code' so rmd isn't super long)
-
-```{r include=FALSE}
-#build model that makes most sense biologically and look at p-values
-#these three models are all provisioning + flocksize
-#trying out different combos of REs to make sure I get same conclusions 
-
-summary(fmod1) #with date and site REs 
-summary(fmod2) #just date RE
-summary(fmod3) #just site RE
-
-#Using this approach, I find that both flock size and provisioning are important (p-vals < 0.05)
-
-#Estimates are negative so inverse relationships between provisioning and foraging; flock size and foraging
-```
 
 #### Model diagnostics
+
+##### Diagnostics using Dharma
 
 Testing the fit of fmod17 and fmod18- the two best fitting models. 
 
@@ -1567,9 +1550,114 @@ testZeroInflation(simulationOutput3) #tests if there are more zeros in the data 
 
 The residuals look pretty okay for this model too but there are more problems when I plot against specific predictors. 
 
-Use predict function to look at model fit:
+##### Plotting predicted values: 
+
+
+Plots made using ggeffects: https://strengejacke.github.io/ggeffects/index.html 
+
+The ggeffects package computes estimated marginal means (predicted values) for the response, at the margin of specific values or levels from certain model terms, i.e. it generates predictions by a model by holding the non-focal variables constant and varying the focal variable(s).
+
+First try this for the models that don't include random effects (fmod13 and fmod14)
 
 ```{r}
+predict(fmod13,ForagePreen_wide,se.fit=TRUE)
+
+library('ggeffects') #plotting glmmTMB predicted values
+
+#just one variable in model
+fmod13_predict <- ggpredict(fmod13, terms = "feedingperhour_s")
+ggplot(fmod13_predict, aes(x, predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1)
+plot(ggpredict(fmod13, terms = "feedingperhour_s"))
+
+fmod13_predict2 <- ggpredict(fmod13, terms = c("feedingperhour_s","flocksize_nearest_s")) #both model terms
+
+ggplot(fmod13_predict2, aes(x = x, y = predicted,color=group)) +
+  geom_line() 
+plot(fmod13_predict2)
+
+
+#with interaction:
+#note the interaction is not significant in this model
+
+#just one variable in model
+fmod14_predict <- ggpredict(fmod14, terms = "feedingperhour_s")
+ggplot(fmod14_predict, aes(x, predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1)
+plot(ggpredict(fmod14, terms = "feedingperhour_s"))
+
+fmod14_predict2 <- ggpredict(fmod14, terms = c("feedingperhour_s","flocksize_nearest_s")) #both model terms
+
+ggplot(fmod14_predict2, aes(x = x, y = predicted,color=group)) +
+  geom_line() 
+plot(fmod14_predict2)
+```
+
+The models look very similar for both fmod13 and fmod14. When you look at the model summary for fmod14, the interaction is not significant. The interaction adds another parameter to the model (this interaction is a 'pretending variable'). So they're both supported but fmod14 has more parameters.
+
+
+Now try this for models with site as random effect (fmod17 and fmod18)
+
+
+```{r}
+predict(fmod17,ForagePreen_wide,se.fit=TRUE)
+
+#just one variable in model
+fmod17_predict <- ggpredict(fmod17, terms = "feedingperhour_s")
+ggplot(fmod17_predict, aes(x, predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1)
+plot(ggpredict(fmod17, terms = "feedingperhour_s"))
+
+fmod17_predict2 <- ggpredict(fmod17, terms = c("feedingperhour_s","flocksize_nearest_s")) #both model terms
+
+ggplot(fmod17_predict2, aes(x = x, y = predicted,color=group)) +
+  geom_line() 
+plot(fmod17_predict2)
+
+#with interaction:
+#note the interaction is not significant in this model
+
+#just one variable in model
+fmod18_predict <- ggpredict(fmod18, terms = "feedingperhour_s")
+ggplot(fmod14_predict, aes(x, predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1)
+
+plot(ggpredict(fmod18, terms = "feedingperhour_s")) 
+plot(ggpredict(fmod18, terms = "flocksize_nearest_s"))
+
+fmod18_predict2 <- ggpredict(fmod18, terms = c("feedingperhour_s","flocksize_nearest_s")) #both model terms
+
+ggplot(fmod18_predict2, aes(x = x, y = predicted,color=group)) +
+  geom_line() 
+plot(fmod18_predict2)
+```
+
+For the paper, showing model outputs for fmod17 (flock size + provisioning) might be useful. Choosing fmod17 because it doesn't include the interaction in fmod18 which isn't significant and does include site as random effect (as opposed to fmod13)
+
+Make a 2 panel figure showing Foraging on Y axis and 1) provisioning and 2) flock size on X axis. 
+
+```{r}
+head(fmod17_predict) #data frame for provisioning
+fmod17_predict3 <- ggpredict(fmod17, terms = "flocksize_nearest_s")
+head(fmod17_predict3)
+
+#merge these two dfs and then facet
+#or just make each one pretty on it's own and paste together 
+
+p1<-ggplot(fmod17_predict, aes(x, predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1)+xlab("Provisioning Frequency (standardized)") + ylab("Predicted Foraging Time")+ggtitle("flock_size + provisioning + (1 | site)")+theme_classic()
+
+p2<-ggplot(fmod17_predict3, aes(x, predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1)+xlab("Flock Size (standardized)") + ylab(NULL)+theme_classic()
+
+p12<- grid.arrange(p1,p2,ncol=2)
+ggsave("foragingmodeloutput.png")
 
 ```
 
