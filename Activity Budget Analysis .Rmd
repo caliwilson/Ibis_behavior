@@ -1567,6 +1567,13 @@ testZeroInflation(simulationOutput3) #tests if there are more zeros in the data 
 
 The residuals look pretty okay for this model too but there are more problems when I plot against specific predictors. 
 
+Use predict function to look at model fit:
+
+```{r}
+
+```
+
+
 ### Preening models: 
 
  Preening includes preening or grooming. 
