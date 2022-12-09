@@ -6,9 +6,9 @@ This is a project I am currently working on and it will become a chapter of my d
 **Aim:** Explore how variation in urbanization and human-provided food influences white ibis behaviors relevant to transmission
 
 **Three main questions** + corresponding Rmd files:
- 1. **How do white ibis activity budgets differ between urban and natural environments?** *(Rmd = Urban Natural Comparison Analysis)*
+ 1. **How do white ibis activity budgets differ between urban and natural environments?** *(Rmd = Urban Natural Comparison Analysis)* [methods = single variable comparisons + multivariate analyses]
  2. **How does provisioning frequency and flock size affect ibis behavior?**
- *(Rmd = Activity Budget Analysis)*
- 3. **How does food provisioning affect ibis flock density?**
+ *(Rmd = Activity Budget Analysis)* [methods = hierarchical models]
+ 3. **How does food provisioning affect ibis flock density?** [methods = simple mean comparisons]
  *(Rmd = Urban foraging proximity project)* 
  
