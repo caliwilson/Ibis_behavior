@@ -8,7 +8,7 @@ This is a project I am currently working on and it will become a chapter of my d
 **Three main questions** + corresponding Rmd files:
  1. **How do white ibis activity budgets differ between urban and natural environments?** *(Rmd = Urban Natural Comparison Analysis)* [methods = single variable comparisons + multivariate analyses]
  2. **How does provisioning frequency and flock size affect ibis behavior?**
- *(Rmd = Activity Budget Analysis)* [methods = hierarchical models]
- 3. **How does food provisioning affect ibis flock density?** [methods = simple mean comparisons]
- *(Rmd = Urban foraging proximity project)* 
+ *(Rmd = Activity Budget Analysis)* [methods = GLMM hierarchical models]
+ 3. **How does food provisioning affect ibis flock density?** 
+ *(Rmd = Urban foraging proximity project)* [methods = simple mean comparisons]
  
