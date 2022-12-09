@@ -45,6 +45,7 @@ library(DHARMa)
 library(bbmle) 
 library(data.table)
 library(mosaic)  # standardizing variables
+library('ggeffects') #plotting glmmTMB predicted values
 ```
 
 ```{r Set Directory and load data, message=FALSE, warning=FALSE, include=FALSE}
@@ -866,349 +867,7 @@ ggplot(predictors, aes(x=site, y=flocksize_nearest)) +
 
 # Model visualizations and Model Selection
 
-### Water Exposure 
-
-This variable includes foraging in water, bathing, and drinking.
-
-**Main Q's:**
-
-Does flock size influence behaviors related to the exposure of waterborne pathogens?
-
-Does the amount of human provided food influence behaviors related to the exposure of waterborne pathogens?
-
-**Exploratory Visualizations**
-
-First, what does the distribution of water exposure look like? Plot water exposure by flock size, provisioning, and site to look for potential trends. (set to 'show nothing, run code' so rmd isn't super long)
-
-
-```{r exploratory visualizations, message=FALSE, warning=FALSE, include=FALSE}
-hist(WaterExposure_wide$WaterExposure) #highly 0 inflated 
-
-ggplot(WaterExposure_wide, aes(x=avg_flock_size, y=WaterExposure/duration)) +
-  geom_point() +theme_classic() +
-  labs(x="Avg Flock Size", y = "Prop. of time exposed to water") #no  clear trends
-
-ggplot(WaterExposure_wide, aes(x=flocksize_nearest, y=WaterExposure/duration)) +
-  geom_point() +theme_classic() +
-  labs(x="Nearest Flock Size", y = "Prop. of time exposed to water")#no  clear trends
-
-ggplot(WaterExposure_wide, aes(x=feedingperhour, y=WaterExposure/duration)) +
-  geom_point() +theme_classic() +
-  labs(x="Provisioning Frequency (# people feeding/hour)", y = "Prop. of time exposed to water")#no  clear trends
-
-ggplot(WaterExposure_wide, aes(x=site, y=WaterExposure/duration)) +
-  geom_boxplot() +theme_classic() #some potential site differences 
-
-```
-
-#### Models 
-
-Standardize predictor variables
-
-```{r include=FALSE}
-#library(mosaic)  # standardizing variables
-
-WaterExposure_wide <- 
-  WaterExposure_wide %>% 
-  mutate(avg_flock_size_s = scale(avg_flock_size))%>% 
-  mutate(flocksize_nearest_s = scale(flocksize_nearest))%>%
-  mutate(feedingperhour_s = scale(feedingperhour))
-```
-
-##### Model selection:
-
-Build a super model and then remove variables in a biologically relevant way to see how fit changes and compare AIC values. 
-
-```{r include=FALSE}
-#interecept only models with site, date, both, or neither as random effects: 
-
-wmod0 <-glmmTMB(WaterExposure~1+(1|date) + (1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=WaterExposure_wide)
-
-wmod0.1 <-glmmTMB(WaterExposure~1+(1|date) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=WaterExposure_wide)
-
-
-wmod0.2 <-glmmTMB(WaterExposure~1+ (1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=WaterExposure_wide)
-
-wmod0.3 <-glmmTMB(WaterExposure~1+ offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=WaterExposure_wide)
-
-#other models: 
-
-wmod1 <-glmmTMB(WaterExposure~flocksize_nearest_s+feedingperhour_s+(1|date) + (1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=WaterExposure_wide)
-summary(wmod1) #date and site REs
-
-wmod2 <-glmmTMB(WaterExposure~flocksize_nearest_s+feedingperhour_s+(1|date) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=WaterExposure_wide)
-summary(wmod2) #just date RE
-
-wmod3 <-glmmTMB(WaterExposure~flocksize_nearest_s+feedingperhour_s+(1|site) + offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=WaterExposure_wide)
-summary(wmod3) #just site RE
-
-wmod4 <-glmmTMB(WaterExposure~feedingperhour_s+flocksize_nearest_s*site+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=WaterExposure_wide)
-summary(wmod4) #site interaction
-
-wmod5 <-glmmTMB(WaterExposure~flocksize_nearest_s+feedingperhour_s+site+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=WaterExposure_wide)
-summary(wmod5) #site as fixed effect
-
-
-AICtab(wmod0,wmod0.1,wmod0.2,wmod0.3,wmod1,wmod2,wmod3,wmod4,wmod5) #most of these models perform well, the model with two REs doesn't perform as well (penalized for extra parameter?)
-
-AICtab(wmod0,wmod0.1,wmod0.2,wmod0.3,wmod1,wmod2,wmod3,wmod4) #exclude model with site as fixed effect
-
-#In conclusion, feeding per hour seems to matter in most models but most models aren't that different than the intercept only models. 
-
-#Random effect of date seems to perform better than that of site. 
-
-
-#what if I test just flock size, just provisioning, or just flocksize * site? 
-
-wmod6 <-glmmTMB(WaterExposure~flocksize_nearest_s+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=WaterExposure_wide)
-summary(wmod6) #just flock size
-
-wmod7 <-glmmTMB(WaterExposure~flocksize_nearest_s+(1|date)+(1|site)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=WaterExposure_wide)
-summary(wmod7) #just flock size with site RE
-
-wmod8 <-glmmTMB(WaterExposure~flocksize_nearest_s*site+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=WaterExposure_wide)
-summary(wmod8) #just flock size * site interaction
-
-wmod9 <-glmmTMB(WaterExposure~feedingperhour_s+(1|date)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=WaterExposure_wide)
-summary(wmod9)#just provisioning
-
-wmod10 <-glmmTMB(WaterExposure~feedingperhour_s+(1|date)+(1|site)+offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=WaterExposure_wide)
-summary(wmod10)#just provisioning + site RE
-
-AICtab(wmod6,wmod7,wmod8,wmod9,wmod10)
-#out of these comparisons, wmod8, wmod9, wmod10 perform best which are all models with either provisioning or flock*site interaction
-
-##What if you compare entire suite of models to see if these last models differ from intercept-only models?
-AICtab(wmod0,wmod0.1,wmod0.2,wmod0.3,wmod1,wmod2,wmod3,wmod4,wmod5,wmod6,wmod7,wmod8,wmod9,wmod10) 
-
-#best performing models 
-#wmod8- flock size*site
-#wmod9- provisioning
-#wmod0.1- intercept date RE
-#wmod5- flock size, provisioning, site
-#wmod4- provisioning, flocksize*site 
-
-#final conclusion, using model selection approach, the intercept only models were within 2 AIC of best performing model suggesting that flock size and provisioning aren't the best predictors. 
-
-```
-
-##### Hypothesis testing approach:
-
-Is flock size important? Is provisioning important? 
-
-```{r include=FALSE}
-#build model that makes most sense biologically and look at p-values
-#these three models are all provisioning + flocksize
-#trying out different combos of REs to make sure I get same conclusions 
-
-summary(wmod1) #with date and site REs 
-summary(wmod2) #just date RE
-summary(wmod3) #just site RE
-
-#Using this approach, I find that provisioning decreases exposure to waterborne parasites 
-```
-
-
-
-#### Model diagnostics
-
-Not yet finished. Code is set to 'don't run' at the moment.  
-
-```{r eval=FALSE, include=FALSE}
-
-library(DHARMa)
-
-#watermod1
-simulationOutput1 <- simulateResiduals(fittedModel = watermod1, n = 1000) 
-
-
-plot(simulationOutput1)
-
-# QQ plot only
-plotQQunif(simulationOutput1) # left plot in plot.DHARMa()
-
-# residual plot only
-plotResiduals(simulationOutput1) # right plot in plot.DHARMa()
-
-#plot residuals against particular predictors
-#plotResiduals(simulationOutput1, YOURPREDICTOR)
-plotResiduals(simulationOutput1,WaterExposure_wide$feedingperhour)
-plotResiduals(simulationOutput1,WaterExposure_wide$avg_flock_size)
-plotResiduals(simulationOutput1,WaterExposure_wide$site)
-
-#Reading residual plots:
-# In a perfect model, we would expect the boxes to range homogeneously from 0.25-0.75; Deviations from this expectation will be highlighted in red (plot calculates test for uniformity per box and test for homogeneity of variance between boxes)
-
-```
-
-```{r eval=FALSE, include=FALSE}
-#test to see if the simulated dispersion is actually matching the observed dispersion
-testDispersion(simulationOutput1) #no significant differences
-
-testZeroInflation(simulationOutput1) #tests if there are more zeros in the data than expected from the simulations
-
-```
-
-### Ectoparasite removal 
-This variable includes preening and bathing. 
-
- (set to 'show nothing, run code' so rmd isn't super long)
-
-```{r message=FALSE, warning=FALSE, include=FALSE}
-hist(EctoparasiteRisk_wide$Ecto) #highly 0 inflated 
-
-ggplot(EctoparasiteRisk_wide, aes(x=avg_flock_size, y=Ecto/duration)) +
-  geom_point() +theme_classic() #no  clear trends
-
-ggplot(EctoparasiteRisk_wide, aes(x=flocksize_nearest, y=Ecto/duration)) +
-  geom_point() +theme_classic() #no  clear trends
-
-ggplot(EctoparasiteRisk_wide, aes(x=site, y=Ecto/duration)) +
-  geom_boxplot() +theme_classic() #some potential site differences 
-
-```
-
-```{r eval=FALSE, include=FALSE}
-#models 
-ectoINTmod <- glmmTMB(Ecto~1+ offset(log(duration)) +(1|date),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=EctoparasiteRisk_wide)
-summary(ectoINTmod)
-
-ectofeedingmod <- glmmTMB(Ecto~feedingperhour+ offset(log(duration)) +(1|date),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=EctoparasiteRisk_wide)
-summary(ectofeedingmod)
-
-
-ectoflockmod <-glmmTMB(Ecto~avg_flock_size+ offset(log(duration)) +(1|date),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=EctoparasiteRisk_wide)
-
-summary(ectoflockmod)
-
-ectoflockNmod <-glmmTMB(Ecto~flocksize_nearest+ offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=EctoparasiteRisk_wide)
-
-summary(ectoflockNmod)
-
-ectoflockNmod2 <-glmmTMB(Ecto~flocksize_nearest+ offset(log(duration)) +(1|date),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=EctoparasiteRisk_wide)
-
-summary(ectoflockNmod2)
-
-
-ectositemod <-glmmTMB(Ecto~site+ offset(log(duration)),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=EctoparasiteRisk_wide)
-summary(ectositemod)
-
-ectositeREmod <-glmmTMB(Ecto~site+ offset(log(duration)) +(1|date),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=EctoparasiteRisk_wide)
-
-summary(ectositeREmod)
-
-ectofeedflockmod <-glmmTMB(Ecto~avg_flock_size+feedingperhour+ offset(log(duration)) +(1|date),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=EctoparasiteRisk_wide)
-summary(ectofeedflockmod)
-
-ectofeedflockmod2 <-glmmTMB(Ecto~flocksize_nearest+feedingperhour+ offset(log(duration)) +(1|date),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=EctoparasiteRisk_wide)
-summary(ectofeedflockmod2)
-
-ectoflocksitemod <-glmmTMB(Ecto~avg_flock_size+avg_flock_size*site+ offset(log(duration)) +(1|date),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=EctoparasiteRisk_wide)
-summary(ectoflocksitemod)
-
-ectoflocksitemod2 <-glmmTMB(Ecto~flocksize_nearest+flocksize_nearest*site+ offset(log(duration)) +(1|date),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=EctoparasiteRisk_wide)
-summary(ectoflocksitemod2)
-
-ectofeedsitemod <-glmmTMB(Ecto~feedingperhour+feedingperhour*site+ offset(log(duration)) +(1|date),
-                    family=nbinom2,
-                    ziformula=~1,
-                    data=EctoparasiteRisk_wide)
-summary(ectofeedsitemod)#doesn't work
-
-
-AIC(ectoINTmod,ectofeedingmod,ectoflockmod,ectositemod, ectositeREmod,ectofeedflockmod,ectoflocksitemod,ectoflockNmod,ectoflockNmod2,ectoflocksitemod2)
-
-anova(ectoINTmod,ectofeedingmod,ectoflockmod,ectositemod, ectositeREmod,ectofeedflockmod,ectoflocksitemod,ectoflockNmod,ectoflockNmod2,ectoflocksitemod2) 
-
-AICtab(ectoINTmod,ectofeedingmod,ectoflockmod,ectositemod, ectositeREmod,ectofeedflockmod,ectoflocksitemod,ectoflockNmod,ectoflockNmod2,ectoflocksitemod2) 
-```
-
-
-### Foraging / Preening trade-off
-
-
-**Main Q's:**
-
-Does flock size, provisioning, both, or neither influence foraging time? What about preening time? 
-
-Literature suggests potential trade-offs between these behaviors. Would be interesting to see if we see differences in either of them and if so, are the effects opposite each other? 
-
-Standardize predictor variables
+Standardize predictor variables 
 
 ```{r}
 #library(mosaic)  # standardizing variables
@@ -1218,10 +877,20 @@ ForagePreen_wide <-
   mutate(avg_flock_size_s = scale(avg_flock_size))%>% 
   mutate(flocksize_nearest_s = scale(flocksize_nearest))%>%
   mutate(feedingperhour_s = scale(feedingperhour))
+
+Vig_wide <- 
+  Vig_wide %>% 
+  mutate(avg_flock_size_s = scale(avg_flock_size))%>% 
+  mutate(flocksize_nearest_s = scale(flocksize_nearest))%>%
+  mutate(feedingperhour_s = scale(feedingperhour))
 ```
 
 
-#### Foraging models: 
+### Foraging models: 
+
+**Main Q:**
+
+Does flock size, provisioning, both, or neither influence foraging time?
 
 Foraging includes foraging on soil, in water, on human objects, and consuming human provided food. 
 
@@ -1231,10 +900,6 @@ Note: Focal follows were **only** conducted when people were not actively feedin
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 hist(ForagePreen_wide$Foraging) #highly 0 inflated
-
-ggplot(ForagePreen_wide, aes(x=avg_flock_size, y=Foraging/duration)) +
-  geom_point() +theme_classic() +
-  labs(x="Avg Flock Size", y = "Prop. of time foraging")
 
 ggplot(ForagePreen_wide, aes(x=flocksize_nearest, y=Foraging/duration)) +
   geom_point() +theme_classic() +
@@ -1260,7 +925,7 @@ ggplot(ForagePreen_wide, aes(x=feedingperhour_s, y=flocksize_nearest_s)) + geom_
 
 ```
 
-##### Model selection:
+#### Model selection:
 
 Count data: Does poisson or negative binomial fit better? Build global model (two predictors + interactions) and compare AIC. 
 
@@ -1275,10 +940,10 @@ zipm1.int = glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s  +offset(log(d
 
 zinbm1 = glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s +offset(log(duration)), zi=~flocksize_nearest_s*feedingperhour_s, ForagePreen_wide, family=nbinom2)
 
-zinbm1.int = glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s +offset(log(duration)), zi=~1, ForagePreen_wide, family=nbinom2) #intercept only zero inflated term
+zinbm1.int = glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s +offset(log(duration)), zi=~1, ForagePreen_wide, family=nbinom2) #intercept only zero inflated term (equally applies zero inflated to whole model)
 
 
-AICtab(pm1,nbm1,zipm1,zipm1.int,zinbm1,zinbm1.int) #zinbm1.int is best fit but does this make sense? can you have an intercept only term in the zi part of the model? 
+AICtab(pm1,nbm1,zipm1,zipm1.int,zinbm1,zinbm1.int) #zinbm1.int is best fit 
 
 ```
 
@@ -1328,6 +993,7 @@ AICtab(pm4,nbm4,zipm4,zinbm4,zinbm4.int) #the two zinbm models are the best
 
 ```
 
+Yes- the zero inflated models always outperform the others. 
 
 I can also double check dispersion and zero inflation in my models using Dharma: 
 
@@ -1345,19 +1011,18 @@ testDispersion(simulationOutput.pm1,alternative = "less") #test for underdispers
 #zero inflated?
 testZeroInflation(simulationOutput.pm1) #yes zero inflated 
 
-#Now let's look at fit of neg binom model to handle zero inflation:
-
+#Poisson model is overdispersed and zero inflated- will the neg binom model do better?
 simulationOutput.nbm <- simulateResiduals(fittedModel = nbm1)
 plot(simulationOutput.nbm)
 
 #overdispersed or underdispersed?
 testDispersion(simulationOutput.nbm,alternative = "greater") #test for overdispersion 
 testDispersion(simulationOutput.nbm,alternative = "less") #test for underdispersion 
-#now it's underdispersed
+#This model is underdispersed
 
 testZeroInflation(simulationOutput.nbm) #still slightly zero inflated 
 
-#how does a neg binom zero inflated model look? compare zinbm1 and zinbm1.int
+#Now test a zero inflated neg binom model (look at zinbm1 and zinbm1.int)
 simulationOutput.zinbm1 <- simulateResiduals(fittedModel = zinbm1)
 plot(simulationOutput.zinbm1)
 
@@ -1374,16 +1039,15 @@ testDispersion(simulationOutput.zinbm1.int,alternative = "less") #test for under
 testZeroInflation(simulationOutput.zinbm1)
 testZeroInflation(simulationOutput.zinbm1.int)
 
-#both are fine
+#Both of these models are good- no disersion or zero inflation issues
 
 ```
 
 These results suggest that the zero inflated models make the most sense (they fix the dispersion and zero inflation issues). ZI models with zi=1 and zi= conditional fixed effects are both sufficient in fixing these issues. 
 
-
 For these data, I would think most zeros are false zeros that are due to experimental design AKA 0 foraging does not mean the bird never forages but rather it was not observed for long enough to observe foraging. I don't think these false zeros could be explained by my predictors. Because of this, I think I should apply a single zero inflation parameter to my entire model (ziformula~1). 
 
-Now I will move forward with zero inflated negative binomial models with a single zero inflated term applied to all models. 
+**Now I will move forward with zero inflated negative binomial models with a single zero inflated term applied to all models. **
 
 First build models without any random effects: 
 
@@ -1434,7 +1098,7 @@ AICtab(fmod0.3,fmod11,fmod12,fmod13,fmod14)
 
 fmod13 (flock size and feeding) and fmod14 (flock size * feeding) are best fitting models. 
 
-Now build the same models but include site as a random effect and see if same models are best fitting. 
+Now build the same models but include site as a random effect and see if same models are best fitting. I think site makes sense biologically but it only has 4 levels so questionable as a RE. 
 
 ```{r}
 
@@ -1479,81 +1143,11 @@ AICtab(fmod0.2,fmod15,fmod16,fmod17,fmod18) #fmod17 and fmod18 = best fit
 
 Models with flock size and feeding or flock size * feeding are still the best fitting models (fmod17 and fmod18 here).
 
+Summary estimates aren't too different for the top performing models regardless of whether they include site as a random effect or not. 
 
 #### Model diagnostics
 
-##### Diagnostics using Dharma
-
-Testing the fit of fmod17 and fmod18- the two best fitting models. 
-
-**First test the fit of fmod17**
-
-```{r fmod17 diagnostics, echo=FALSE, message=TRUE, warning=TRUE}
-
-library(DHARMa)
-
-summary(fmod17)
-
-simulationOutput2 <- simulateResiduals(fittedModel = fmod17, n = 1000) 
-
-
-plot(simulationOutput2)
-
-# QQ plot only
-#plotQQunif(simulationOutput2) # left plot in plot.DHARMa(); residuals look fine
-
-# residual plot only
-#plotResiduals(simulationOutput2) # right plot in plot.DHARMa(); looks pretty good to me
-
-#plot residuals against particular predictors
-#plotResiduals(simulationOutput2, YOURPREDICTOR)
-#predictors in fmod17 = flocksize_nearest_s and feedingperhour_s 
-plotResiduals(simulationOutput2,ForagePreen_wide$feedingperhour_s) #not great
-plotResiduals(simulationOutput2,ForagePreen_wide$flocksize_nearest_s) #not bad
-
-#other goodness of fit metrics for residuals:
-testDispersion(simulationOutput2) #no significant differences
-
-testZeroInflation(simulationOutput2) #tests if there are more zeros in the data than expected from the simulations; looks good
-```
-
-Residuals look fine. Plotting residuals against the two predictors suggests that there might be some issues for one of them. 
-
-**Now test fit for fmod18**
-
-```{r fmod18 diagnostics, echo=FALSE, message=TRUE, warning=TRUE}
-
-library(DHARMa)
-
-summary(fmod18)
-
-simulationOutput3 <- simulateResiduals(fittedModel = fmod18, n = 1000) 
-
-
-plot(simulationOutput3)
-
-# QQ plot only
-#plotQQunif(simulationOutput3) # left plot in plot.DHARMa(); residuals look fine
-
-# residual plot only
-#plotResiduals(simulationOutput3) # right plot in plot.DHARMa(); looks pretty good to me
-
-#plot residuals against particular predictors
-#plotResiduals(simulationOutput3, YOURPREDICTOR)
-#predictors in fmod17 = flocksize_nearest_s and feedingperhour_s 
-plotResiduals(simulationOutput3,ForagePreen_wide$feedingperhour_s) #not great
-plotResiduals(simulationOutput3,ForagePreen_wide$flocksize_nearest_s) #not as bad but still not great
-
-#other goodness of fit metrics for residuals:
-testDispersion(simulationOutput3) #no significant differences
-
-testZeroInflation(simulationOutput3) #tests if there are more zeros in the data than expected from the simulations; looks good
-```
-
-The residuals look pretty okay for this model too but there are more problems when I plot against specific predictors. 
-
 ##### Plotting predicted values: 
-
 
 Plots made using ggeffects: https://strengejacke.github.io/ggeffects/index.html 
 
@@ -1562,9 +1156,7 @@ The ggeffects package computes estimated marginal means (predicted values) for t
 First try this for the models that don't include random effects (fmod13 and fmod14)
 
 ```{r}
-predict(fmod13,ForagePreen_wide,se.fit=TRUE)
-
-library('ggeffects') #plotting glmmTMB predicted values
+#predict(fmod13,ForagePreen_wide,se.fit=TRUE) #couold use predict fxn but ggpredict makes it easier to graph:
 
 #just one variable in model
 fmod13_predict <- ggpredict(fmod13, terms = "feedingperhour_s")
@@ -1599,12 +1191,9 @@ plot(fmod14_predict2)
 
 The models look very similar for both fmod13 and fmod14. When you look at the model summary for fmod14, the interaction is not significant. The interaction adds another parameter to the model (this interaction is a 'pretending variable'). So they're both supported but fmod14 has more parameters.
 
-
 Now try this for models with site as random effect (fmod17 and fmod18)
 
-
 ```{r}
-predict(fmod17,ForagePreen_wide,se.fit=TRUE)
 
 #just one variable in model
 fmod17_predict <- ggpredict(fmod17, terms = "feedingperhour_s")
@@ -1664,9 +1253,56 @@ ggsave("foragingmodeloutput.png")
 ```
 
 
+##### Diagnostics using Dharma
+
+Testing the fit of fmod17 and fmod18- the two best fitting models that include site as a random effect. 
+
+**First test the fit of fmod17**
+
+```{r fmod17 diagnostics, echo=FALSE, message=TRUE, warning=TRUE}
+
+summary(fmod17)
+simulationOutput2 <- simulateResiduals(fittedModel = fmod17, n = 1000) 
+plot(simulationOutput2) #left QQ plot residuals look fine, right plot looks ok too
+
+#plot residuals against particular predictors
+#predictors in fmod17 = flocksize_nearest_s and feedingperhour_s 
+plotResiduals(simulationOutput2,ForagePreen_wide$feedingperhour_s) #not great
+plotResiduals(simulationOutput2,ForagePreen_wide$flocksize_nearest_s) #not bad
+
+#other goodness of fit metrics for residuals:
+testDispersion(simulationOutput2) #no significant differences
+testZeroInflation(simulationOutput2) #looks good
+```
+
+Residuals look fine. Plotting residuals against the two predictors suggests that there might be some issues for one of them. 
+
+**Now test fit for fmod18**
+
+```{r fmod18 diagnostics, echo=FALSE, message=TRUE, warning=TRUE}
+summary(fmod18)
+simulationOutput3 <- simulateResiduals(fittedModel = fmod18, n = 1000) 
+plot(simulationOutput3)#left QQ plot residuals look fine, right plot looks ok too
+
+#plot residuals against particular predictors
+#predictors in fmod18 = flocksize_nearest_s and feedingperhour_s (and interaction but idt you can plot this)
+plotResiduals(simulationOutput3,ForagePreen_wide$feedingperhour_s) #not great
+plotResiduals(simulationOutput3,ForagePreen_wide$flocksize_nearest_s) #not as bad but still not great
+
+#other goodness of fit metrics for residuals:
+testDispersion(simulationOutput3) #no significant differences
+testZeroInflation(simulationOutput3) #looks good
+```
+
+The residuals look pretty okay for this model too but there are more problems when I plot against specific predictors. 
+
 ### Grooming models: 
 
- Preening includes preening or grooming (bathing). 
+**Main Q:**
+
+Does flock size, provisioning, both, or neither influence foraging time?
+
+ Grooming includes preening or bathing. 
  
  **Exploratory Visualizations**
  
@@ -1799,17 +1435,12 @@ The top performing models are within 2 AIC values of the intercept only null mod
 
 Not needed because the intercept only model is the best fitting model? 
 
-### Vigilance models: 
-```{r}
-#library(mosaic)  # standardizing variables
+### Vigilance models:
 
-Vig_wide <- 
-  Vig_wide %>% 
-  mutate(avg_flock_size_s = scale(avg_flock_size))%>% 
-  mutate(flocksize_nearest_s = scale(flocksize_nearest))%>%
-  mutate(feedingperhour_s = scale(feedingperhour))
-```
- 
+**Main Q:**
+
+Does flock size, provisioning, both, or neither influence vigilance time?
+
  **Exploratory Visualizations**
  
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
