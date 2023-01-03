@@ -46,6 +46,7 @@ library(bbmle)
 library(data.table)
 library(mosaic)  # standardizing variables
 library('ggeffects') #plotting glmmTMB predicted values
+library(AICcmodavg) #model selection tables
 ```
 
 ```{r Set Directory and load data, message=FALSE, warning=FALSE, include=FALSE}
@@ -266,8 +267,8 @@ s.sum.site<- s %>%
 #grid.table(s.sum.site)
 #dev.off()
 
-s%>%
-  dplyr::select_if(is.numeric) %>% hist.data.frame() #histograms 
+#s%>%
+ # dplyr::select_if(is.numeric) %>% hist.data.frame() #histograms - big plot that throws errors due to margin size (expand boxes if you want this plot)
 
 #Group together certain variables
 fillcolumn <- function(x) { 
@@ -1039,7 +1040,7 @@ testDispersion(simulationOutput.zinbm1.int,alternative = "less") #test for under
 testZeroInflation(simulationOutput.zinbm1)
 testZeroInflation(simulationOutput.zinbm1.int)
 
-#Both of these models are good- no disersion or zero inflation issues
+#Both of these models are good- no dispersion or zero inflation issues
 
 ```
 
@@ -1138,7 +1139,6 @@ fmod18 <-glmmTMB(Foraging~flocksize_nearest_s*feedingperhour_s+(1|site)+offset(l
 summary(fmod18)
 
 AICtab(fmod0.2,fmod15,fmod16,fmod17,fmod18) #fmod17 and fmod18 = best fit
-
 ```
 
 Models with flock size and feeding or flock size * feeding are still the best fitting models (fmod17 and fmod18 here).
@@ -1247,8 +1247,59 @@ p2<-ggplot(fmod17_predict3, aes(x, predicted)) +
   geom_line() +
   geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1)+xlab("Flock Size (standardized)") + ylab(NULL)+theme_classic()
 
-p12<- grid.arrange(p1,p2,ncol=2)
-ggsave("foragingmodeloutput.png")
+p12<-grid.arrange(p1,p2,ncol=2)
+ggsave("foragingmodeloutput.png",plot=p12)
+
+#make a plot that includes raw data and shows model fit:
+#data = ForagePreen_wide
+
+ggplot(ForagePreen_wide, aes(x=feedingperhour_s, y=Foraging)) + geom_point(color='dimgray') + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  theme(plot.title = element_text(face = "bold")) + 
+  labs(title="flock_size + provisioning + (1 | site)",
+      y="Foraging time (seconds)",
+      x="Provisioning Frequency (standardized") +
+  geom_line(data=fmod17_predict, aes(x = x, y = predicted)) +
+  geom_ribbon(data=fmod17_predict,aes(ymin = conf.low, ymax = conf.high), alpha = .1)+ theme_classic()
+
+
+p1_points<-ggplot(fmod17_predict, aes(x, predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Provisioning Frequency (standardized)") + ylab("Foraging Time (seconds)")+ggtitle("flock_size + provisioning + (1 | site)")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=feedingperhour_s, y=Foraging),color='#ABABAB')
+
+p2_points<-ggplot(fmod17_predict3, aes(x, predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Flock Size (standardized)") + ylab("Foraging Time (seconds)")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=flocksize_nearest_s, y=Foraging),color='#ABABAB')
+
+p12_points<-grid.arrange(p1_points,p2_points,ncol=2)
+ggsave("foragingmodeloutput_points.png",plot=p12_points)
+
+```
+
+Make the same plots but without standardizing the predictor variables. 
+
+```{r}
+fmod17_unscaled <-glmmTMB(Foraging~flocksize_nearest+feedingperhour+(1|site)+offset(log(duration)),
+                    family=nbinom2,
+                    ziformula=~1,
+                    data=ForagePreen_wide)
+summary(fmod17)
+summary(fmod17_unscaled) #p values look the same
+
+fmod17_predict_unscaled <- ggpredict(fmod17_unscaled, terms = "feedingperhour")
+
+fmod17_predict2_unscaled <- ggpredict(fmod17_unscaled, terms = "flocksize_nearest")
+
+p1_points_unscaled<-ggplot(fmod17_predict_unscaled, aes(x, predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Provisioning Frequency") + ylab("Foraging Time (seconds)")+ggtitle("flock_size + provisioning + (1 | site)")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=feedingperhour, y=Foraging),color='#ABABAB')
+
+p2_points_unscaled<-ggplot(fmod17_predict2_unscaled, aes(x, predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Flock Size") + ylab("Foraging Time (seconds)")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=flocksize_nearest, y=Foraging),color='#ABABAB')
+
+p12_points_unscaled<-grid.arrange(p1_points_unscaled,p2_points_unscaled,ncol=2)
+ggsave("foragingmodeloutput_points_unscaled.png",plot=p12_points_unscaled)
 
 ```
 
@@ -1295,6 +1346,27 @@ testZeroInflation(simulationOutput3) #looks good
 ```
 
 The residuals look pretty okay for this model too but there are more problems when I plot against specific predictors. 
+
+#### Tables for Publication
+
+```{r}
+Cand.models <- list("null" =fmod0.2, 
+                    "provisioning" = fmod15,
+                    "flock size" = fmod16,
+                    "provisioning + flock size" = fmod17,
+                    "provisioning * flock size" = fmod18)
+selectionTable <- aictab(cand.set = Cand.models, second.ord = FALSE) #uses AIC 
+selectionTable
+
+library(xtable)
+ftable<-print(xtable(selectionTable, caption = "Model selection table on ibis foraging time.",
+label = "tab:selection"),
+include.rownames = FALSE, caption.placement = "top")
+library(texPreview)
+tex_preview(ftable)
+```
+
+
 
 ### Grooming models: 
 
@@ -1433,7 +1505,28 @@ The top performing models are within 2 AIC values of the intercept only null mod
 
 #### Model diagnostics
 
-Not needed because the intercept only model is the best fitting model? 
+Not needed because the intercept only model is the best fitting model?
+
+#### Tables for Publication
+
+```{r}
+Cand.models_groom <- list("null" =pmod0.2, 
+                    "provisioning" = pmod15,
+                    "flock size" = pmod16,
+                    "provisioning + flock size" = pmod17,
+                    "provisioning * flock size" = pmod18)
+selectionTable_groom <- aictab(cand.set = Cand.models_groom, second.ord = FALSE) #uses AIC 
+selectionTable_groom
+
+library(xtable)
+gtable<-print(xtable(selectionTable_groom, caption = "Model selection table on ibis grooming time.",
+label = "tab:selection"),
+include.rownames = FALSE, caption.placement = "top")
+library(texPreview)
+tex_preview(gtable)
+```
+
+
 
 ### Vigilance models:
 
@@ -1570,3 +1663,22 @@ The top performing models are within 2 AIC values of the intercept only null mod
 #### Model diagnostics
 
 Not needed because the intercept only model is the best fitting model? 
+
+#### Tables for Publication
+
+```{r}
+Cand.models_vig <- list("null" =vmod0.2, 
+                    "provisioning" = vmod15,
+                    "flock size" = vmod16,
+                    "provisioning + flock size" = vmod17,
+                    "provisioning * flock size" = vmod18)
+selectionTable_vig <- aictab(cand.set = Cand.models_vig, second.ord = FALSE) #uses AIC 
+selectionTable_vig
+
+library(xtable)
+vtable<-print(xtable(selectionTable_vig, caption = "Model selection table on ibis vigilance time.",
+label = "tab:selection"),
+include.rownames = FALSE, caption.placement = "top")
+library(texPreview)
+tex_preview(vtable)
+```
