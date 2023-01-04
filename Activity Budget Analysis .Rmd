@@ -47,6 +47,7 @@ library(data.table)
 library(mosaic)  # standardizing variables
 library('ggeffects') #plotting glmmTMB predicted values
 library(AICcmodavg) #model selection tables
+library(kableExtra)
 ```
 
 ```{r Set Directory and load data, message=FALSE, warning=FALSE, include=FALSE}
@@ -1241,11 +1242,11 @@ head(fmod17_predict3)
 
 p1<-ggplot(fmod17_predict, aes(x, predicted)) +
   geom_line() +
-  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1)+xlab("Provisioning Frequency (standardized)") + ylab("Predicted Foraging Time")+ggtitle("flock_size + provisioning + (1 | site)")+theme_classic()
+  geom_ribbon(data=fmod17_predict,aes(ymin = conf.low, ymax = conf.high), alpha = .1)+xlab("Provisioning Frequency (standardized)") + ylab("Predicted Foraging Time")+ggtitle("flock_size + provisioning + (1 | site)")+theme_classic()
 
 p2<-ggplot(fmod17_predict3, aes(x, predicted)) +
   geom_line() +
-  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1)+xlab("Flock Size (standardized)") + ylab(NULL)+theme_classic()
+  geom_ribbon(data=fmod17_predict3,aes(ymin = conf.low, ymax = conf.high), alpha = .1)+xlab("Flock Size (standardized)") + ylab(NULL)+theme_classic()
 
 p12<-grid.arrange(p1,p2,ncol=2)
 ggsave("foragingmodeloutput.png",plot=p12)
@@ -1253,23 +1254,13 @@ ggsave("foragingmodeloutput.png",plot=p12)
 #make a plot that includes raw data and shows model fit:
 #data = ForagePreen_wide
 
-ggplot(ForagePreen_wide, aes(x=feedingperhour_s, y=Foraging)) + geom_point(color='dimgray') + 
-  theme(plot.title = element_text(hjust = 0.5)) + 
-  theme(plot.title = element_text(face = "bold")) + 
-  labs(title="flock_size + provisioning + (1 | site)",
-      y="Foraging time (seconds)",
-      x="Provisioning Frequency (standardized") +
-  geom_line(data=fmod17_predict, aes(x = x, y = predicted)) +
-  geom_ribbon(data=fmod17_predict,aes(ymin = conf.low, ymax = conf.high), alpha = .1)+ theme_classic()
-
-
 p1_points<-ggplot(fmod17_predict, aes(x, predicted)) +
   geom_line() +
-  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Provisioning Frequency (standardized)") + ylab("Foraging Time (seconds)")+ggtitle("flock_size + provisioning + (1 | site)")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=feedingperhour_s, y=Foraging),color='#ABABAB')
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Provisioning Frequency (standardized)") + ylab("Foraging Time (seconds)")+ggtitle("A).\n flock_size + provisioning + (1 | site)")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=feedingperhour_s, y=Foraging),color='#ABABAB')
 
 p2_points<-ggplot(fmod17_predict3, aes(x, predicted)) +
   geom_line() +
-  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Flock Size (standardized)") + ylab("Foraging Time (seconds)")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=flocksize_nearest_s, y=Foraging),color='#ABABAB')
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Flock Size (standardized)") + ylab("Foraging Time (seconds)")+ggtitle("B).")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=flocksize_nearest_s, y=Foraging),color='#ABABAB')
 
 p12_points<-grid.arrange(p1_points,p2_points,ncol=2)
 ggsave("foragingmodeloutput_points.png",plot=p12_points)
@@ -1292,11 +1283,11 @@ fmod17_predict2_unscaled <- ggpredict(fmod17_unscaled, terms = "flocksize_neares
 
 p1_points_unscaled<-ggplot(fmod17_predict_unscaled, aes(x, predicted)) +
   geom_line() +
-  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Provisioning Frequency") + ylab("Foraging Time (seconds)")+ggtitle("flock_size + provisioning + (1 | site)")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=feedingperhour, y=Foraging),color='#ABABAB')
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Provisioning Frequency") + ylab("Foraging Time (seconds)")+ggtitle("A).\n flock_size + provisioning + (1 | site)")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=feedingperhour, y=Foraging),color='#ABABAB')
 
 p2_points_unscaled<-ggplot(fmod17_predict2_unscaled, aes(x, predicted)) +
   geom_line() +
-  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Flock Size") + ylab("Foraging Time (seconds)")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=flocksize_nearest, y=Foraging),color='#ABABAB')
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Flock Size") + ggtitle("B).")+ylab("Foraging Time (seconds)")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=flocksize_nearest, y=Foraging),color='#ABABAB')
 
 p12_points_unscaled<-grid.arrange(p1_points_unscaled,p2_points_unscaled,ncol=2)
 ggsave("foragingmodeloutput_points_unscaled.png",plot=p12_points_unscaled)
@@ -1350,20 +1341,67 @@ The residuals look pretty okay for this model too but there are more problems wh
 #### Tables for Publication
 
 ```{r}
-Cand.models <- list("null" =fmod0.2, 
-                    "provisioning" = fmod15,
-                    "flock size" = fmod16,
-                    "provisioning + flock size" = fmod17,
-                    "provisioning * flock size" = fmod18)
+Cand.models <- list("null + (1|site)" =fmod0.2, 
+                    "provisioning + (1|site)" = fmod15,
+                    "flock size + (1|site)" = fmod16,
+                    "provisioning + flock size + (1|site)" = fmod17,
+                    "provisioning * flock size + (1|site)" = fmod18)
 selectionTable <- aictab(cand.set = Cand.models, second.ord = FALSE) #uses AIC 
-selectionTable
+row.names(selectionTable) <- NULL
 
-library(xtable)
-ftable<-print(xtable(selectionTable, caption = "Model selection table on ibis foraging time.",
-label = "tab:selection"),
-include.rownames = FALSE, caption.placement = "top")
-library(texPreview)
-tex_preview(ftable)
+kable(selectionTable,col.names = c("Model","K","AIC"     ,  "$\\Delta$ AIC","ModelLik","AICWt", "LogLik","Cum.Wt"),caption = "<b>Foraging Candidate Models<b>") %>%
+ kable_styling(latex_options = "striped") %>%
+  kable_classic(  lightable_options = "striped",full_width = F, html_font = "Cambria")
+```
+
+```{r}
+sf17<-summary(fmod17)
+sumfmod17<-as.data.frame(sf17$coefficients[1])
+
+kable(sumfmod17,col.names = c("Estimate","Std. error","z value","p-value"),caption = "<b>fmod17 summary<b>") %>%
+ kable_styling(latex_options = "striped") %>%
+  kable_classic(  lightable_options = "striped",full_width = F, html_font = "Cambria")
+
+sf18<-summary(fmod18)
+sumfmod18<-as.data.frame(sf18$coefficients[1])
+
+kable(sumfmod18,col.names = c("Estimate","Std. error","z value","p-value"),caption = "<b>fmod18 summary<b>") %>%
+ kable_styling(latex_options = "striped") %>%
+  kable_classic(  lightable_options = "striped",full_width = F, html_font = "Cambria")
+
+
+#try to merge these two summary tables 
+sumfmod17$Model <- "fmod17"
+sumfmod18$Model <- "fmod18"
+sumfmod17$Predictors <- rownames(sumfmod17) #convert rownames to  column
+sumfmod18$Predictors <- rownames(sumfmod18)#convert rownames to  column
+
+fmods <- rbind(sumfmod17, sumfmod18)
+rownames(fmods)<-NULL #remove rownames
+
+fmods <- fmods %>%
+  dplyr::select(Predictors, everything())
+
+fmods$Model<-NULL
+fmods <- fmods %>% 
+       rename("pval" = "cond.Pr...z..") #renaming column 
+
+#fmods$pval<-
+ # dplyr::select(fmods,pval)%>% mutate_if(is.numeric, ~ case_when(. <0.00000001 ~ round(., 30), TRUE ~ round(.,5)))
+#fmods <- fmods %>% 
+   #    rename("pval" = "cond.Pr...z..") #renaming column 
+
+#fmods  <- fmods  %>%
+ # mutate(pval = case_when(
+  # pval < 0.05 ~ paste0(as.character(pval), "*"),
+  #  TRUE ~ paste0(pval)
+ # ))
+
+kable(fmods,col.names = c("Response/Predictors","Estimate","Std. error","z-value","p-value"),digits = c(5,5,5,5,5)) %>%
+ kable_styling(latex_options = "striped") %>%
+  kable_classic(  lightable_options = "striped",full_width = F, html_font = "Cambria")%>%
+  pack_rows("Foraging", 1, 3) %>%
+  pack_rows("Foraging", 4, 7)
 ```
 
 
@@ -1510,20 +1548,17 @@ Not needed because the intercept only model is the best fitting model?
 #### Tables for Publication
 
 ```{r}
-Cand.models_groom <- list("null" =pmod0.2, 
-                    "provisioning" = pmod15,
-                    "flock size" = pmod16,
-                    "provisioning + flock size" = pmod17,
-                    "provisioning * flock size" = pmod18)
+Cand.models_groom <- list("null + (1|site)" =pmod0.2, 
+                    "provisioning + (1|site)" = pmod15,
+                    "flock size + (1|site)" = pmod16,
+                    "provisioning + flock size + (1|site)" = pmod17,
+                    "provisioning * flock size + (1|site)" = pmod18)
 selectionTable_groom <- aictab(cand.set = Cand.models_groom, second.ord = FALSE) #uses AIC 
-selectionTable_groom
+row.names(selectionTable_groom) <- NULL
 
-library(xtable)
-gtable<-print(xtable(selectionTable_groom, caption = "Model selection table on ibis grooming time.",
-label = "tab:selection"),
-include.rownames = FALSE, caption.placement = "top")
-library(texPreview)
-tex_preview(gtable)
+kable(selectionTable_groom,col.names = c("Model","K","AIC"     ,  "$\\Delta$ AIC","ModelLik","AICWt", "LogLik","Cum.Wt"),caption = "<b>Grooming Candidate Models<b>") %>%
+ kable_styling(latex_options = "striped") %>%
+  kable_classic(  lightable_options = "striped",full_width = F, html_font = "Cambria")
 ```
 
 
@@ -1667,18 +1702,16 @@ Not needed because the intercept only model is the best fitting model?
 #### Tables for Publication
 
 ```{r}
-Cand.models_vig <- list("null" =vmod0.2, 
-                    "provisioning" = vmod15,
-                    "flock size" = vmod16,
-                    "provisioning + flock size" = vmod17,
-                    "provisioning * flock size" = vmod18)
+Cand.models_vig <- list("null + (1|site)" =vmod0.2, 
+                    "provisioning + (1|site)" = vmod15,
+                    "flock size + (1|site)" = vmod16,
+                    "provisioning + flock size + (1|site)" = vmod17,
+                    "provisioning * flock size + (1|site)" = vmod18)
 selectionTable_vig <- aictab(cand.set = Cand.models_vig, second.ord = FALSE) #uses AIC 
-selectionTable_vig
+row.names(selectionTable_vig) <- NULL
 
-library(xtable)
-vtable<-print(xtable(selectionTable_vig, caption = "Model selection table on ibis vigilance time.",
-label = "tab:selection"),
-include.rownames = FALSE, caption.placement = "top")
-library(texPreview)
-tex_preview(vtable)
+kable(selectionTable_vig,col.names = c("Model","K","AIC"     ,  "$\\Delta$ AIC","ModelLik","AICWt", "LogLik","Cum.Wt"),caption = "<b>Vigilance Candidate Models<b>") %>%
+ kable_styling(latex_options = "striped") %>%
+  kable_classic(  lightable_options = "striped",full_width = F, html_font = "Cambria")
 ```
+
