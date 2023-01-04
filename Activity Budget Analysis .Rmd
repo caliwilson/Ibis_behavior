@@ -1397,7 +1397,7 @@ fmods <- fmods %>%
   #  TRUE ~ paste0(pval)
  # ))
 
-kable(fmods,col.names = c("Response/Predictors","Estimate","Std. error","z-value","p-value"),digits = c(5,5,5,5,5)) %>%
+kable(fmods,col.names = c("Response/Predictors","Estimate","Std. error","z-value","p-value"),digits = c(5,5,5,5,20)) %>%
  kable_styling(latex_options = "striped") %>%
   kable_classic(  lightable_options = "striped",full_width = F, html_font = "Cambria")%>%
   pack_rows("Foraging", 1, 3) %>%
