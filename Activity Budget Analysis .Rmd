@@ -865,6 +865,20 @@ ggplot(predictors, aes(x=site, y=flocksize_nearest)) +
   labs(title="Plot of nearest flock size by site",x="Site", y = "Nearest Flock Size")
 
 ```
+# Provisioning and Flock Density
+
+```{r}
+ggplot(predictors, aes(x=feedingperhour, y=flocksize_nearest)) +
+  geom_point() 
+
+ggplot(predictors, aes(x=feedingperhour, y=log(flocksize_nearest))) +
+  geom_point() 
+
+
+lm1 <- lm(predictors$flocksize_nearest~predictors$feedingperhour)
+summary(lm1)
+```
+
 
 
 # Model visualizations and Model Selection
