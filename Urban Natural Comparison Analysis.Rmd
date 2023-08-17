@@ -12,7 +12,8 @@ editor_options:
 
 ### Sample sizes by site
 
-Note- Observations are the average of 2-8 scans conducted at 10 minute intervals. 
+Note- Observations are the average of 1-8 scans conducted at 10 minute intervals. 
+There are 8 observations from natural wetlands and 9 from urban parks. 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 library(readxl)
 library(tidyverse)
@@ -25,6 +26,7 @@ library(glmmTMB)
 library(DHARMa)
 library(bbmle) 
 library(gridExtra)
+library(lubridate)
 flockscans <- read_excel("data/Spring 2021 Field Data.xlsx", 
                                      sheet = "Flock Scans")
 
@@ -34,13 +36,16 @@ aggregated %<>%
   unite(obs, c(site,date), sep = " ", remove = FALSE)
 
 
-#ggplot(aggregated , aes(x = obs,count)) +
- # geom_col() +  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
+ggplot(aggregated , aes(x = obs,count)) +
+  geom_col() +  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
+
+print(aggregated) #This shows flock scans per observation (site/date combo); 17 rows total
 
 obsbysite <- aggregated  %>% group_by(site) %>% dplyr::summarise(count=n()) 
 
 ggplot(obsbysite , aes(x = site,count)) +
   geom_col() +  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
 
 
 ```
@@ -50,7 +55,7 @@ ggplot(obsbysite , aes(x = site,count)) +
 **natural wetlands** = GC, WAK, WW
 
 ## Activity budgets
-```{r message=FALSE, warning=FALSE, include=FALSE}
+```{r echo=FALSE, message=FALSE, warning=FALSE}
 #more data wrangling
 
 types<- flockscans %>% dplyr::select(site, site_type)
@@ -61,6 +66,8 @@ obsbysitetype<- obsbysite  %>% group_by(site_type) %>% dplyr::summarize(total=su
 
 ggplot(obsbysitetype, aes(x = site_type,total)) +
   geom_col() +  theme_classic()
+
+obsbysitetype
 
 ### Summary data:
 head(obsbysitetype)
@@ -153,6 +160,35 @@ ggplot(fs_obs, aes(x=site_type, y=prop_forage,color  =time_bin)) +
 
 
 ```
+
+What time of day were scans taken during?
+
+```{r}
+#this is a super clunky way to doing things 
+fs_t<-fs
+
+fs_t$time2 <-as.POSIXlt(fs_t$time, format = "%H:%M")
+
+fs_t$hour<-hour(fs_t$time2)
+fs_t$min<-minute(fs_t$time2)
+
+fs_t<-fs_t[
+  with(fs_t, order(hour, min)),
+]
+
+#earliest time
+fs_t$hour[1]
+fs_t$min[1]
+
+#latest time
+last<-tail(fs_t, n =1)
+last$hour
+last$min
+
+hist(fs_t$hour)
+
+```
+
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 #Data wrangling and visualize all behaviors together for each site type
@@ -600,23 +636,24 @@ grid.arrange(f2plot,g2plot,v2plot,r2plot,w2plot,bar3, ncol=3,
 
 #### Adjust p-values for multiple comparisons
 
-```{r adjust p vals, echo=FALSE, message=FALSE}
+```{r adjust p vals, echo=TRUE, message=FALSE}
 f<-t.test(fs_obs$prop_forage~fs_obs$site_type)$p.value
-p<-t.test(fs_obs$prop_preen~fs_obs$site_type)$p.value
+g<-t.test(fs_obs$prop_groom~fs_obs$site_type)$p.value
 v<-t.test(fs_obs$prop_vig~fs_obs$site_type)$p.value
 r<-wilcox.test(fs_obs$prop_rest~fs_obs$site_type)$p.value
 w<-wilcox.test(fs_obs$prop_walk~fs_obs$site_type)$p.value
 
-pvals<-c(f,p,v,r,w)
+pvals<-c(f,g,v,r,w)
 padj<-p.adjust(pvals, "bonferroni")
 
-pvalsDF <- data.frame (first_column  = c("foraging", "preening", "vigilant","resting","walking"),
+pvalsDF <- data.frame (first_column  = c("foraging", "grooming", "vigilant","resting","walking"),
                      p.orig=pvals,
                   p.adj= padj)
                 
 
 print(pvalsDF)
 ```
+
 
 Main conclusion: 
 We only see differences in vigilance and walking behaviors across site types. No differences in behaviors most relevant to transmission (i.e., foraging or preening). 
