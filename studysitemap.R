@@ -13,7 +13,7 @@ sites$lat<- as.numeric(sites$lat)
 sites$long<- as.numeric(sites$long)
 
 #get google map
-register_google(key = "AIzaSyDYum8S7ksfY0xiKJAsBmYHfBExxNP2jYk") #my code
+# register_google(key = "ADD KEY HERE") 
 
 
 #zoomed in field site map
