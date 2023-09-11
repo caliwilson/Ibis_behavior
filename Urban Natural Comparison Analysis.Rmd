@@ -19,6 +19,8 @@ library(readxl)
 library(tidyverse)
 library(magrittr)
 library(gridExtra)
+library(cowplot)
+library(grid)
 library(viridis)
 library(factoextra)
 library(rstatix)
@@ -450,7 +452,7 @@ t.test(fs_obs$prop_walk~fs_obs$site_type) #NOT significant with t-test
 wilcox.test(fs_obs$prop_walk~fs_obs$site_type) #significant with non-parametric test
 ```
 
-#### Arrange multiple figures onto one plot
+## Arrange multiple figures onto one plot
 
 ```{r}
 #order plots by most frequent to least frequent behavior
@@ -501,138 +503,127 @@ bar3ex<- ggplot(data=fs_bar2, aes(x=site_type, y=mean, fill=Activity2)) +
 ```
 
 
+###Create theme for multipanel figure
+```{r}
 
+#create theme for plots
+theme_fig4 <- function(){ 
+    font <- "Arial"   #assign font family up front
+    
+    theme_minimal() %+replace%    #replace elements we want to change
+    
+    theme(
+      
+      #grid elements
+      panel.grid.major = element_blank(),    #strip major gridlines
+      panel.grid.minor = element_blank(),    #strip minor gridlines
+      axis.ticks = element_blank(),          #strip axis ticks
+      
+      #since theme_minimal() already strips axis lines, 
+      #we don't need to do that again
+      
+      #text elements
+      plot.title = element_text(             #title
+                   family = font,            #set font family
+                   size = 16,                #set font size         
+                   hjust = 0.15,                #left align
+                   vjust = -1.5),               #raise slightly
+      
+     # plot.subtitle = element_text(          #subtitle
+          #         family = font,            #font family
+           #        size = 14),               #font size
+      
+      #plot.caption = element_text(           #caption
+      #             family = font,            #font family
+       #            size = 9,                 #font size
+         #          hjust = 1),               #right align
+      
+      axis.title = element_text(             #axis titles
+                   family = font,            #font family
+                   size = 14),               #font size
+      
+      axis.title.x = element_blank(),              #font size
+      
+      axis.title.y = element_blank(),
+      
+      axis.line.x = element_line(color="black"),
+     
+        axis.line.y = element_line(color="black"),
+     axis.text.x = element_text(size = 14),
+     axis.text.y = element_text(size = 14),
+     legend.position="none"
+      
+      #since the legend often requires manual tweaking 
+      #based on plot content, don't define it here
+    )
+}
+```
+
+
+###Build plots
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
-fplot<- ggplot(fs_obs2, aes(x=site_type, y=prop_forage_mean, ymin = prop_forage_mean-prop_forage_sd, ymax = prop_forage_mean+prop_forage_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type))+ geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
-  scale_color_manual(values=c("#6F9408", "#5C5983"))+
-  scale_fill_manual(values=c("#6F9408", "#5C5983")) + ggtitle("Foraging") +
-  scale_y_continuous(limits=c(0, 1))
-
 f2plot<- ggplot(fs_obs2, aes(x=site_type, y=prop_forage_mean, ymin = prop_forage_mean-prop_forage_sd, ymax = prop_forage_mean+prop_forage_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type))+ geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+geom_pointrange(position = position_jitterdodge(seed=40,dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type))+ geom_boxplot(outlier.shape=8,outlier.color="black",alpha = 0.4,aes(fill=site_type))+theme_fig4()+
   scale_color_manual(values=c("#440154", "#440154"))+
   scale_fill_manual(values=c("#440154", "#440154")) + ggtitle("Foraging") +
   scale_y_continuous(limits=c(0, 1)) #purple
 
-f3plot<- ggplot(fs_obs2, aes(x=site_type, y=prop_forage_mean, ymin = prop_forage_mean-prop_forage_sd, ymax = prop_forage_mean+prop_forage_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type))+ geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
-  scale_color_manual(values=c("#5ec962", "#5ec962"))+
-  scale_fill_manual(values=c("#5ec962", "#5ec962")) + ggtitle("Foraging") +
-  scale_y_continuous(limits=c(0, 1))
-
-gplot<-ggplot(fs_obs2, aes(x=site_type, y=prop_groom_mean, ymin = prop_groom_mean-prop_groom_sd, ymax = prop_groom_mean+prop_groom_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+  geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
-  scale_color_manual(values=c("#6F9408", "#5C5983"))+
-  scale_fill_manual(values=c("#6F9408", "#5C5983"))+ ggtitle("Grooming") +
-  scale_y_continuous(limits=c(0, 1))
-
 g2plot<-ggplot(fs_obs2, aes(x=site_type, y=prop_groom_mean, ymin = prop_groom_mean-prop_groom_sd, ymax = prop_groom_mean+prop_groom_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+  geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+geom_pointrange(position = position_jitterdodge(seed=40,dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+  geom_boxplot(outlier.shape=8,outlier.color="black",alpha = 0.4,aes(fill=site_type))+theme_fig4()+
   scale_color_manual(values=c("#3b528b", "#3b528b"))+
   scale_fill_manual(values=c("#3b528b", "#3b528b"))+ ggtitle("Grooming") +
   scale_y_continuous(limits=c(0, 1)) #blue
 
-g3plot<-ggplot(fs_obs2, aes(x=site_type, y=prop_groom_mean, ymin = prop_groom_mean-prop_groom_sd, ymax = prop_groom_mean+prop_groom_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+  geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
-  scale_color_manual(values=c("#21918c", "#21918c"))+
-  scale_fill_manual(values=c("#21918c", "#21918c"))+ ggtitle("Grooming") +
-  scale_y_continuous(limits=c(0, 1))
-
-vplot<- ggplot(fs_obs2, aes(x=site_type, y=prop_vig_mean, ymin = prop_vig_mean-prop_vig_sd, ymax = prop_vig_mean+prop_vig_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+  
-  scale_color_manual(values=c("#6F9408", "#5C5983"))+
-  scale_fill_manual(values=c("#6F9408", "#5C5983"))+ ggtitle("Vigilant") +
-  scale_y_continuous(limits=c(0, 1))
-
 v2plot<- ggplot(fs_obs2, aes(x=site_type, y=prop_vig_mean, ymin = prop_vig_mean-prop_vig_sd, ymax = prop_vig_mean+prop_vig_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+  
+geom_pointrange(position = position_jitterdodge(seed=40,dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type)) + geom_boxplot(outlier.shape=8,outlier.color="black",alpha = 0.4,aes(fill=site_type))+theme_fig4()+
   scale_color_manual(values=c("#21918c", "#21918c"))+
   scale_fill_manual(values=c("#21918c", "#21918c"))+ ggtitle("Vigilant") +
   scale_y_continuous(limits=c(0, 1)) #teal
 
-v3plot<- ggplot(fs_obs2, aes(x=site_type, y=prop_vig_mean, ymin = prop_vig_mean-prop_vig_sd, ymax = prop_vig_mean+prop_vig_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.0, jitter.width = 0.7),aes(color=site_type,fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+  
-  scale_color_manual(values=c("#fde725", "#fde725"))+
-  scale_fill_manual(values=c("#fde725", "#fde725"))+ ggtitle("Vigilant") +
-  scale_y_continuous(limits=c(0, 1))
-
-rplot<-ggplot(fs_obs2, aes(x=site_type, y=prop_rest_mean, ymin = prop_rest_mean-prop_rest_sd, ymax = prop_rest_mean+prop_rest_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
-  scale_color_manual(values=c("#6F9408", "#5C5983"))+
-  scale_fill_manual(values=c("#6F9408", "#5C5983"))+ ggtitle("Resting") +
-  scale_y_continuous(limits=c(0, 1))
-
 r2plot<-ggplot(fs_obs2, aes(x=site_type, y=prop_rest_mean, ymin = prop_rest_mean-prop_rest_sd, ymax = prop_rest_mean+prop_rest_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+geom_pointrange(position = position_jitterdodge(seed=40,dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ geom_boxplot(outlier.shape=8,outlier.color="black",alpha = 0.4,aes(fill=site_type))+theme_fig4()+
   scale_color_manual(values=c("#5ec962", "#5ec962"))+
   scale_fill_manual(values=c("#5ec962", "#5ec962"))+ ggtitle("Resting") +
   scale_y_continuous(limits=c(0, 1)) #green
 
-r3plot<-ggplot(fs_obs2, aes(x=site_type, y=prop_rest_mean, ymin = prop_rest_mean-prop_rest_sd, ymax = prop_rest_mean+prop_rest_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type))+ geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
-  scale_color_manual(values=c("#440154", "#440154"))+
-  scale_fill_manual(values=c("#440154", "#440154"))+ ggtitle("Resting") +
-  scale_y_continuous(limits=c(0, 1))
-
-wplot<-ggplot(fs_obs2, aes(x=site_type, y=prop_walk_mean, ymin = prop_walk_mean-prop_walk_sd, ymax = prop_walk_mean+prop_walk_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
-  scale_color_manual(values=c("#6F9408", "#5C5983"))+
-  scale_fill_manual(values=c("#6F9408", "#5C5983"))+ ggtitle("Walking") +
-  scale_y_continuous(limits=c(0, 1))
-
 w2plot<-ggplot(fs_obs2, aes(x=site_type, y=prop_walk_mean, ymin = prop_walk_mean-prop_walk_sd, ymax = prop_walk_mean+prop_walk_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),color="black",shape=21,aes(fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
+geom_pointrange(position = position_jitterdodge(seed=40,dodge.width = 0.9, jitter.width = 1),color="black",shape=21,aes(fill=site_type)) + geom_boxplot(outlier.shape=8,outlier.color="black",alpha = 0.4,aes(fill=site_type))+theme_fig4()+
   scale_color_manual(values=c("#fde725", "#fde725"))+
   scale_fill_manual(values=c("#fde725", "#fde725"))+ ggtitle("Walking") +
   scale_y_continuous(limits=c(0, 1)) #yellow
-
-#w2plot<-ggplot(fs_obs2, aes(x=site_type, y=prop_walk_mean, ymin = prop_walk_mean-prop_walk_sd, ymax = prop_walk_mean+prop_walk_sd)) +  
-#geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
- # scale_color_manual(values=c("#fde725", "#fde725"))+
- # scale_fill_manual(values=c("#fde725", "#fde725"))+ ggtitle("Walking") +
- # scale_y_continuous(limits=c(0, 1)) #yellow
-
-w2plot2<-ggplot(fs_obs2, aes(x=site_type, y=prop_walk_mean, ymin = prop_walk_mean-prop_walk_sd, ymax = prop_walk_mean+prop_walk_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),color="black",shape=21,aes(fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
-  scale_color_manual(values=c("#fde725", "#fde725"))+
-  scale_fill_manual(values=c("#fde725", "#fde725"))+ ggtitle("Walking") +
-  scale_y_continuous(limits=c(0, 1)) #yellow
-
-
-w3plot<-ggplot(fs_obs2, aes(x=site_type, y=prop_walk_mean, ymin = prop_walk_mean-prop_walk_sd, ymax = prop_walk_mean+prop_walk_sd)) +  
-geom_pointrange(position = position_jitterdodge(dodge.width = 0.9, jitter.width = 1),aes(color=site_type,fill=site_type)) + geom_boxplot(alpha = 0.1,aes(fill=site_type))+theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())+ 
-  scale_color_manual(values=c("#3b528b", "#3b528b"))+
-  scale_fill_manual(values=c("#3b528b", "#3b528b"))+ ggtitle("Walking") +
-  scale_y_continuous(limits=c(0, 1))
-
-grid.arrange(vplot,wplot,fplot,gplot,rplot, ncol=3, 
-               bottom="Site Type", 
-               left="Proportion of flock doing each behavior") 
-
 
 ##add in clustered bar graph:
-bar<- ggplot(data=fs_collapsed2, aes(x=site_type, y=mean, fill=Activity2)) +
-  geom_bar(stat="identity") + scale_fill_viridis(discrete=TRUE)+ theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank()) 
-
-bar<- ggplot(data=fs_collapsed2, aes(x=site_type, y=mean, fill=Activity2)) +
-  geom_bar(stat="identity") + scale_fill_viridis(discrete=TRUE)+ theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank()) 
-
 bar2<- ggplot(data=fs_bar, aes(x=site_type, y=mean, fill=Activity2)) +
-  geom_bar(stat="identity") + scale_fill_viridis(discrete=TRUE)+ theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank())  #most common on top
+  geom_bar(stat="identity") + scale_fill_viridis(discrete=TRUE)+theme_fig4()+ ggtitle("Activity Budgets") #most common on top
 
-bar3<- ggplot(data=fs_bar2, aes(x=site_type, y=mean, fill=Activity2)) +
-  geom_bar(stat="identity") + scale_fill_viridis(direction=-1,discrete=TRUE)+ theme(legend.position="none",axis.title.x=element_blank(),axis.title.y=element_blank()) #most common on bottom
-
-grid.arrange(f2plot,g2plot,v2plot,r2plot,w2plot,bar2, ncol=3, 
-               bottom="Site Type", 
-               left="Proportion of flock performing each behavior") #change color in w2plot and bar2
-
-grid.arrange(f2plot,g2plot,v2plot,r2plot,w2plot,bar3, ncol=3, 
-               bottom="Site Type", 
-               left="Proportion of flock performing each behavior") 
+bar2_leg<- ggplot(data=fs_bar, aes(x=site_type, y=mean, fill=Activity2)) +
+  geom_bar(stat="identity") + scale_fill_viridis(discrete=TRUE, name="Behavior")+ ggtitle("Activity Budgets")#same plot but with legend so I can later extract it
 
 ```
+
+### Figure 4 for manuscript
+```{r}
+leg <- get_legend(bar2_leg) #extract barplot legend 
+
+#use cowplot to create multipanel figure
+fig4<-plot_grid(NULL,f2plot,g2plot,v2plot,NULL,NULL,r2plot,w2plot,bar2,leg,ncol=5,rel_widths = c(0.1,1,1,1,0.25,0.1,1,1,1,0.25), labels = c('','A', 'B','C','','','D','E','F',''),label_size = 14)
+
+#Cowplot doesn't make it easy to make shared legends to switching back to gridExtra for that
+#left<-textGrob("Proportion of flock doing each behavior", rot = 90,gp=gpar(fontsize=12,fontfamily='Arial',fontface="bold"))
+left<-textGrob("Proportion of flock doing each behavior", rot = 90,gp=gpar(fontsize=16,fontfamily='Arial'))
+
+bottom<-textGrob("Site type",gp=gpar(fontsize=16,fontfamily='Arial'))
+
+fig4_2<- grid.arrange(fig4,left=left,bottom=bottom) #use gridExtra to make shared axis labels
+fig4_2
+
+ggsave2(file="outputs/fig4.png",fig4_2,dpi=300,limitsize = TRUE) #Save figure
+
+
+#882 × 726 pixels
+
+```
+
 
 #### Adjust p-values for multiple comparisons
 
