@@ -48,6 +48,7 @@ library(mosaic)  # standardizing variables
 library('ggeffects') #plotting glmmTMB predicted values
 library(AICcmodavg) #model selection tables
 library(kableExtra)
+library(cowplot)
 ```
 
 ```{r Set Directory and load data, message=FALSE, warning=FALSE, include=FALSE}
@@ -295,11 +296,11 @@ head(ab_summary)
 
 grouped_summary<-ab_summary %>% 
   group_by(focalID, act_type) %>% 
-  summarise(prop.new = sum(prop, na.rm = TRUE))
+ dplyr::summarise(prop.new = sum(prop, na.rm = TRUE))
 
 checking<-grouped_summary %>% #check to make sure all props sum to 1
   group_by(focalID) %>% 
-  summarise(prop.new2 = sum(prop.new, na.rm = TRUE))
+ dplyr::summarise(prop.new2 = sum(prop.new, na.rm = TRUE))
 
 
 ifelse(checking$prop.new2 > 1.00000000000,checking$focalID,NA) #something weird is happening
@@ -313,7 +314,7 @@ ggplot(data=grouped_summary, aes(x=focalID, y=prop.new, fill=act_type)) +
 
 all_urban<-grouped_summary %>% 
   group_by(act_type) %>% 
-  summarise(prop.new = mean(prop.new, na.rm = TRUE))
+ dplyr::summarise(prop.new = mean(prop.new, na.rm = TRUE))
 sum(all_urban$prop.new) #confirm props add to 1
 
 ```
@@ -359,7 +360,7 @@ ggplot(flocksize, aes(x=site, y=,WHIB_total)) +
   geom_boxplot()  + ylab("White Ibis Flock Size")+ ggtitle("Plot of white ibis flock sizes recorded at each site")
 
 flocksize.bydate<- flocksize %>% 
-  dplyr::group_by(site,date) %>% summarise(size=mean(WHIB_total))
+  dplyr::group_by(site,date) %>%dplyr::summarise(size=mean(WHIB_total))
 
 ##instead of average flock size, look at nearest flock size taken at time nearest to focal follow
 head(behav2)
@@ -628,7 +629,7 @@ behaviorcounts$simple <- sapply(behaviorcounts$Activity,fill_behav_simple)
 WaterExposure <- dplyr::select(behaviorcounts, focalID,activity_count,focalduration,WaterExposure) #select relevant columns
 WaterExposure <-WaterExposure  %>% 
   group_by(focalID, WaterExposure) %>% 
-  summarise(activity_count = sum(activity_count, na.rm = TRUE))
+ dplyr::summarise(activity_count = sum(activity_count, na.rm = TRUE))
 WaterExposure_wide<-spread(WaterExposure, key = WaterExposure, value = activity_count)
 WaterExposure_wide <- merge(predictors, WaterExposure_wide, by="focalID") #add in predictors 
 WaterExposure_wide$duration <- WaterExposure_wide$Other+WaterExposure_wide$WaterExposure
@@ -641,7 +642,7 @@ table(water.int)["TRUE"]
 HumanExposureRisk <- dplyr::select(behaviorcounts, focalID,activity_count,focalduration,WaterExposure,HumanExposureRisk)
 HumanExposureRisk <-HumanExposureRisk  %>% 
   group_by(focalID, HumanExposureRisk) %>% 
-  summarise(activity_count = sum(activity_count, na.rm = TRUE))
+ dplyr::summarise(activity_count = sum(activity_count, na.rm = TRUE))
 HumanExposureRisk_wide<-spread(HumanExposureRisk, key = HumanExposureRisk, value = activity_count)
 HumanExposureRisk_wide <- merge(predictors, HumanExposureRisk_wide, by="focalID") #add in predictors 
 HumanExposureRisk_wide$duration <- HumanExposureRisk_wide$Other+HumanExposureRisk_wide$HumanRisk
@@ -651,7 +652,7 @@ HumanExposureRisk_wide <- HumanExposureRisk_wide[complete.cases(HumanExposureRis
 EctoparasiteRisk <- dplyr::select(behaviorcounts, focalID,activity_count,focalduration,WaterExposure,EctoparasiteRisk)
 EctoparasiteRisk <-EctoparasiteRisk  %>% 
   group_by(focalID, EctoparasiteRisk) %>% 
-  summarise(activity_count = sum(activity_count, na.rm = TRUE))
+ dplyr::summarise(activity_count = sum(activity_count, na.rm = TRUE))
 EctoparasiteRisk_wide<-spread(EctoparasiteRisk, key = EctoparasiteRisk, value = activity_count)
 EctoparasiteRisk_wide <- merge(predictors, EctoparasiteRisk_wide, by="focalID") #add in predictors 
 EctoparasiteRisk_wide$duration <- EctoparasiteRisk_wide$Other+EctoparasiteRisk_wide$Ecto
@@ -662,7 +663,7 @@ table(EctoparasiteRisk_wide$integer)["FALSE"] #NA no integers
 ForagePreen<- dplyr::select(behaviorcounts, focalID,activity_count,focalduration,WaterExposure,ForagePreen)
 ForagePreen <-ForagePreen  %>% 
   group_by(focalID, ForagePreen) %>% 
-  summarise(activity_count = sum(activity_count, na.rm = TRUE))
+ dplyr::summarise(activity_count = sum(activity_count, na.rm = TRUE))
 ForagePreen_wide<-spread(ForagePreen, key = ForagePreen, value = activity_count)
 ForagePreen_wide <- merge(predictors, ForagePreen_wide, by="focalID") #add in predictors 
 ForagePreen_wide$duration <- ForagePreen_wide$Other+ForagePreen_wide$Foraging+ForagePreen_wide$Preening
@@ -675,7 +676,7 @@ table(ForagePreen_wide$integer)["FALSE"] #NA no integers
 Vig <- dplyr::select(behaviorcounts, focalID,activity_count,focalduration,Vig)
 Vig <-Vig  %>% 
   group_by(focalID, Vig) %>% 
-  summarise(activity_count = sum(activity_count, na.rm = TRUE))
+ dplyr::summarise(activity_count = sum(activity_count, na.rm = TRUE))
 Vig_wide<-spread(Vig, key = Vig, value = activity_count)
 Vig_wide <- merge(predictors, Vig_wide, by="focalID") #add in predictors 
 Vig_wide$duration <- Vig_wide$Other+Vig_wide$Vigilant
@@ -686,7 +687,7 @@ table(Vig_wide$integer)["FALSE"] #NA no integers
 simplified_behaviors <- dplyr::select(behaviorcounts, focalID,activity_count,focalduration,simple)
 simplified_behaviors  <-simplified_behaviors   %>% 
   group_by(focalID, simple) %>% 
-  summarise(activity_count = sum(activity_count, na.rm = TRUE))
+ dplyr::summarise(activity_count = sum(activity_count, na.rm = TRUE))
 Simp_wide<-spread(simplified_behaviors, key = simple, value = activity_count)
 Simp_wide <- merge(predictors, Simp_wide, by="focalID") #add in predictors 
 Simp_wide$duration <- Simp_wide$Drinking+Simp_wide$Foraging+Simp_wide$Grooming+Simp_wide$Other+Simp_wide$Resting + Simp_wide$Vigilant+Simp_wide$Walking
@@ -750,7 +751,7 @@ sum3<- as.data.frame(subset(simp2, activity_count > 0))
 
 
 sum3.1 <- sum3 %>% group_by(focalID) %>% 
-  summarise(n_behaviors=n(),
+ dplyr::summarise(n_behaviors=n(),
             .groups = 'drop')
 
 summary(sum3.1)
@@ -796,7 +797,7 @@ What behaviors did ibis spend the most time doing?
 ```{r}
 sum5<-simp2
 
-sum5 <- sum5 %>% group_by(Activity) %>% summarise(sum(activity_count))
+sum5 <- sum5 %>% group_by(Activity) %>%dplyr::summarise(sum(activity_count))
 sum5
 
 ```
@@ -808,7 +809,7 @@ sum6<-simp2
 sum6<- as.data.frame(subset(simp2, activity_count > 0))
 
 sum6.1 <- sum6 %>% group_by(Activity) %>% 
-  summarise(n_focals=n(),
+ dplyr::summarise(n_focals=n(),
             .groups = 'drop')
 
 sum6.1
@@ -1263,21 +1264,24 @@ p2<-ggplot(fmod17_predict3, aes(x, predicted)) +
   geom_ribbon(data=fmod17_predict3,aes(ymin = conf.low, ymax = conf.high), alpha = .1)+xlab("Flock Size (standardized)") + ylab(NULL)+theme_classic()
 
 p12<-grid.arrange(p1,p2,ncol=2)
-ggsave("foragingmodeloutput.png",plot=p12)
+ggsave("outputs/foragingmodeloutput.png",plot=p12)
 
 #make a plot that includes raw data and shows model fit:
 #data = ForagePreen_wide
+#this is Figure 3 in Manuscript
 
 p1_points<-ggplot(fmod17_predict, aes(x, predicted)) +
   geom_line() +
-  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Provisioning Frequency (standardized)") + ylab("Foraging Time (seconds)")+ggtitle("A).\n flock_size + provisioning + (1 | site)")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=feedingperhour_s, y=Foraging),color='#ABABAB')
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Provisioning frequency (standardized)") + ylab("Foraging time (seconds)")+ggtitle("flock_size + provisioning + (1 | site)")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=feedingperhour_s, y=Foraging),color='#ABABAB')
 
 p2_points<-ggplot(fmod17_predict3, aes(x, predicted)) +
   geom_line() +
-  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Flock Size (standardized)") + ylab("Foraging Time (seconds)")+ggtitle("B).")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=flocksize_nearest_s, y=Foraging),color='#ABABAB')
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2,fill='#440154')+xlab("Flock size (standardized)") + ylab("Foraging time (seconds)")+theme_classic()+geom_point(data=ForagePreen_wide, aes(x=flocksize_nearest_s, y=Foraging),color='#ABABAB')
 
-p12_points<-grid.arrange(p1_points,p2_points,ncol=2)
-ggsave("foragingmodeloutput_points.png",plot=p12_points)
+fig3<-plot_grid(p1_points,p2_points, labels = c('A','B'))
+
+#p12_points<-grid.arrange(p1_points,p2_points,ncol=2)
+ggsave2("outputs/foragingmodeloutput_points.png",plot=fig3)
 
 ```
 

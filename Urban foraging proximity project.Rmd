@@ -31,20 +31,21 @@ library(reshape2)
 library(rstatix)
 library(ggpubr)
 library(gridExtra)
+library(coin)
+
 
 vid0<- read_excel("data/Ibis Behavior.xlsx",sheet = "1m_density")
-vid <- read_excel("data/Ibis Behavior.xlsx",sheet = "1m_density")
-vid<-dplyr::select(vid,site,date,vid_length,focalID,count_2m=`2m_density`,flock_size)
+vid <- vid0
+vid<-dplyr::select(vid,vid_ID,site,date,vid_length,focalID,count_2m=`2m_density`,flock_size)
 vid$count_2m<-as.numeric(vid$count_2m)
 vid$uniqueID <- paste(vid$vid_ID,vid$vid_length,vid$focalID,sep='')
-vid$focalID<-NULL #remove old focalID
+vid$vid_ID<-NULL #remove old ID
 
 vid_avg<-vid %>%drop_na() %>%  #drop rows with NA
   group_by(uniqueID) %>% 
-  summarise(avg_count=mean(count_2m)) %>%#average by uniqueID 
-  rename(focalID = uniqueID) #rename uniqueID to focalID for merging later
-
-
+  dplyr::summarise(avg_count=mean(count_2m)) %>% #average by uniqueID 
+  dplyr::rename(focalID=uniqueID)
+  
 VIDsites <- dplyr::select(vid,site,focalID=uniqueID)
 VIDsites <- unique(VIDsites)
 vid_avg <- merge(vid_avg,VIDsites, by=c("focalID")) 
@@ -65,7 +66,7 @@ FFprox_1m$count_2m<- as.numeric(FFprox_1m$count_2m)
 
 FF_avg<-FFprox_1m %>%drop_na() %>%  #drop rows with NA
    group_by(focalID) %>% 
-   summarise(avg_count=mean(count_2m))  
+   dplyr::summarise(avg_count=mean(count_2m))  
 
 
 #add site back in:
@@ -83,9 +84,6 @@ vid_avg$foraging_type <- "provisioned"
 FF_avg$foraging_type <- "not provisioned"
 
 count_1m <- rbind(vid_avg,FF_avg)  #merge two datasets together; 30 + 164
-
-#write.csv(count_1m ,"merged_foraging_data.csv", row.names = FALSE) #writing this CSV to use for python class project
-
 ```
 
 Visualizations:
@@ -93,49 +91,21 @@ Visualizations:
 ```{r echo=FALSE}
 ggplot(count_1m, aes(x=site, y=avg_count, fill=foraging_type)) +
   geom_boxplot(position=position_dodge(1)) + theme_classic() +
-  xlab("Site") + ylab("Number of conspecifics within 1m of focal ibis")
+  xlab("Site") + ylab("Number of conspecifics within 1m of focal ibis") #by site
 
 ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
   geom_boxplot(position=position_dodge(1)) + theme_classic() +
-  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank())
-
-ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
-  geom_boxplot(position=position_dodge(1)) + theme_classic() +
-  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank())+ geom_dotplot(binaxis='y', stackdir='center', dotsize=0.2,fill="#21918c",color="#21918c")
-
-ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
-  geom_violin() + theme_classic() +
-  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank()) + geom_dotplot(binaxis='y', stackdir='center', dotsize=0.2)
-
-ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
-   geom_violin(trim=FALSE, fill="#fde725")+  geom_boxplot(width=0.1)+theme_classic() +
-  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank())
-
+  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank()) #all
 
 ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
   geom_boxplot(position=position_dodge(1),fill="#21918c") + theme_classic() +
   ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank())+ geom_dotplot(binaxis='y', stackdir='center', dotsize=0.2)
-
-
-#notched boxplot
-ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
-  geom_boxplot(alpha = 0.1,outlier.shape=8,notch=TRUE,aes(fill=foraging_type)) + theme_classic() +
-  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank())+geom_jitter(shape=16, position=position_jitter(0.2),aes(color=foraging_type,fill=foraging_type))+ 
-  scale_color_manual(values=c("#21918c", "#3b528b"))+
-  scale_fill_manual(values=c("#21918c", "#3b528b"))
-
-ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
-  geom_boxplot(outlier.shape=8,notch=TRUE,aes(fill=foraging_type)) + theme_classic() +
-  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank())+geom_jitter(alpha = 0.5,shape=16, position=position_jitter(0.2),aes(color=foraging_type,fill=foraging_type))+ 
-  scale_color_manual(values=c("#21918c", "#3b528b"))+
-  scale_fill_manual(values=c("#21918c", "#3b528b"))
 
 bplot<-ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
   geom_boxplot(outlier.shape=8,notch=TRUE) + theme_classic() +
   ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank(),legend.position="none")+geom_jitter(alpha = 0.5,shape=16, position=position_jitter(0.3),aes(color=foraging_type,fill=foraging_type))+ 
   scale_color_manual(values=c("#21918c", "#440154"))+
   scale_fill_manual(values=c("#21918c", "#440154"))
-
 
 
 hplot<-ggplot(count_1m, aes(x = avg_count)) +
@@ -147,20 +117,16 @@ hplot<-ggplot(count_1m, aes(x = avg_count)) +
   labs(x="Number of conspecifics within 1m of focal ibis", y = "Number of Observations")+
   theme_classic()+theme(legend.position = c(0.7, 0.7)) 
 
-
 grid.arrange(hplot,bplot, ncol=2) 
 
-ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
-  geom_boxplot(outlier.shape=8,notch=TRUE) + theme_classic() +
-  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank(),legend.position="none")+geom_jitter(alpha = 0.5,shape=16, position=position_jitter(0.3),aes(color=foraging_type,fill=foraging_type))+ 
+#plot for Figure 2:
+fig2<-ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
+  geom_boxplot(outlier.shape=8,notch=FALSE) + theme_classic() +
+  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank(),legend.position="none")+geom_jitter(alpha = 0.8,shape=16, position=position_jitter(0.3,seed=40),aes(color=foraging_type,fill=foraging_type))+ 
   scale_color_manual(values=c("#21918c", "#440154"))+
   scale_fill_manual(values=c("#21918c", "#440154"))
 
-ggplot(count_1m, aes(x=foraging_type, y=avg_count)) +
-  geom_boxplot(outlier.shape=8,notch=FALSE) + theme_classic() +
-  ylab("Number of conspecifics within 1m of focal ibis") + theme(axis.title.x=element_blank(),legend.position="none")+geom_jitter(alpha = 0.5,shape=16, position=position_jitter(0.3),aes(color=foraging_type,fill=foraging_type))+ 
-  scale_color_manual(values=c("#21918c", "#440154"))+
-  scale_fill_manual(values=c("#21918c", "#440154"))
+ggsave(file="outputs/fig2.png",fig2,height=4,width=6,units='in',limitsize = TRUE) #Save figure
 
 ```
 
@@ -209,8 +175,6 @@ names(r) = "r"
 r
 
 #try wilcox test using 'coin' package to see if I calculated Z score correctly
-library(coin)
-
 count_1m$foraging_type<-as.factor(count_1m$foraging_type)
 w2 <- coin::wilcox_test(count_1m$avg_count ~ count_1m$foraging_type)
 Z2 = as.numeric(statistic(w2, type="standardized"))
@@ -310,8 +274,6 @@ data_summary <- function(data, varname, groupnames){
  return(data_sum)
 }
 
-library(plyr)
-library(dplyr)
 df2 <- data_summary(flock_size_comp, varname="ibis_count", 
                     groupnames=c("date", "site","flock"))
 
